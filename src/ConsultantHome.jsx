@@ -1,595 +1,423 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
+import { supabase } from './supabaseClient'; // Cliente de BD
 import { Ic, GIROS } from './constants';
 import { Btn, Input, Select, Modal } from './ui';
-import { hashPwd, uid, fmtDate, today, giroLabel, giroColor } from './utils';
-
-export function
-ConsultantHome({data,setData,currentUser,onEnterProject,onLogout}){
-
-const [showNew,setShowNew]=useState(false);
-
-const [search,setSearch]=useState('');
-
-const
-[form,setForm]=useState({nombre:'',empresa:'',giro:'',email:'',pwd:'',notas:''});
-
-const [formError,setFormError]=useState('');
-
-const [tempPwd,setTempPwd]=useState('');
-
-const [confirmDel,setConfirmDel]=useState(null);
-
-const setF=(k,v)=>setForm(f=>({...f,[k]:v}));
-
-const
-misProyectos=data.proyectos.filter(p=>p.consultor_id===currentUser.id);
-
-const proyectos=misProyectos.filter(p=>{
-
-if(!search)return true;
-
-const u=data.usuarios.find(u=>u.id===p.cliente_id);
-
-return
-(u?.empresa||'').toLowerCase().includes(search.toLowerCase())||
-
-(u?.nombre||'').toLowerCase().includes(search.toLowerCase());
-
-});
-
-const stats={
-
-clientes:misProyectos.length,
-
-tramitesActivos:misProyectos.reduce((a,p)=>a+(p.tramites||[]).filter(t=>['recopilando','ingresado','en_revision'].includes(t.estado)).length,0),
-
-alertasSinLeer:misProyectos.reduce((a,p)=>a+(p.alertas||[]).filter(al=>!al.leido).length,0),
-
-cumplidos:misProyectos.reduce((a,p)=>a+(p.tramites||[]).filter(t=>t.estado==='cumplido').length,0),
-
-};
-
-const createClient=()=>{
-
-if(!form.nombre||!form.empresa||!form.giro||!form.email){setFormError('Completa
-nombre, empresa, giro y email.');return;}
-
-if(data.usuarios.find(u=>u.email===form.email)){setFormError('Ya
-existe una cuenta con ese correo.');return;}
-
-const pwd=form.pwd||Math.random().toString(36).slice(2,10);
-
-const clientId=uid();const proyId=uid();
-
-const
-newU={id:clientId,nombre:form.nombre,empresa:form.empresa,giro:form.giro,email:form.email,
-
-pwd_hash:hashPwd(pwd),rol:'cliente',proyecto_id:proyId};
-
-const newP={id:proyId,cliente_id:clientId,consultor_id:currentUser.id,
-
-cuestionario:{respondido:false,respuestas:{},fecha:null},tramites:[],alertas:[],
-
-iso14001:{secciones:{'4':{},'5':{},'6':{},'7':{},'8':{},'9':{},'10':{}}},
-
-creado:today(),notas:form.notas};
-
-setData(d=>({...d,usuarios:[...d.usuarios,newU],proyectos:[...d.proyectos,newP]}));
-
-setTempPwd(pwd);setForm({nombre:'',empresa:'',giro:'',email:'',pwd:'',notas:''});setFormError('');
-
-};
-
-const deleteProject=(pId)=>{
-
-const p=data.proyectos.find(x=>x.id===pId);
-
-if(!p)return;
-
-setData(d=>({...d,
-
-usuarios:d.usuarios.filter(u=>u.id!==p.cliente_id),
-
-proyectos:d.proyectos.filter(x=>x.id!==pId),
-
-}));
-
-setConfirmDel(null);
-
-};
-
-const getClientUser=(pId)=>{
-
-const p=data.proyectos.find(x=>x.id===pId);
-
-return data.usuarios.find(u=>u.id===p?.cliente_id);
-
-};
-
-const getPctCompliance=(p)=>{
-
-const t=p.tramites||[];
-
-if(!t.length)return null;
-
-return
-Math.round(t.filter(x=>x.estado==='cumplido').length/t.length*100);
-
-};
-
-return(
-
-<div className="min-h-screen" style={{background:'#F0FDF4'}}>
-
-{/* Header */}
-
-<div className="relative overflow-hidden"
-style={{background:'linear-gradient(135deg,#14532d 0%,#166534
-60%,#15803d 100%)'}}>
-
-{/* BG pattern */}
-
-<div className="absolute inset-0 opacity-10"
-style={{backgroundImage:"url(\\"data:image/svg+xml,%3Csvg width='60'
-height='60' viewBox='0 0 60 60'
-xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none'
-fill-rule='evenodd'%3E%3Cg fill='%23ffffff'
-fill-opacity='1'%3E%3Cpath d='M36
-34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6
-34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6
-4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E\\")"}}/>
-
-<div className="relative px-8 py-6">
-
-<div className="flex items-center justify-between">
-
-<div className="flex items-center gap-4">
-
-<div className="w-11 h-11 rounded-xl bg-white/20 flex items-center
-justify-center">
-
-<Ic n="leaf" s={22} c="white"/>
-
-</div>
-
-<div>
-
-<p className="text-white font-bold text-lg">EnviroGest MX</p>
-
-<p className="text-green-200 text-xs">BIOIMPACT · Panel del
-Consultor</p>
-
-</div>
-
-</div>
-
-<div className="flex items-center gap-3">
-
-<div className="text-right">
-
-<p className="text-white font-medium
-text-sm">{currentUser.nombre}</p>
-
-<p className="text-green-200 text-xs">{currentUser.email}</p>
-
-</div>
-
-<button onClick={onLogout} className="p-2 rounded-lg hover:bg-white/10
-text-white/70 hover:text-white"><Ic n="logout" s={16}/></button>
-
-</div>
-
-</div>
-
-{/* Stats */}
-
-<div className="grid grid-cols-4 gap-4 mt-6">
-
-{[
-
-{v:stats.clientes,l:'Clientes activos',i:'users'},
-
-{v:stats.tramitesActivos,l:'Trámites en proceso',i:'file'},
-
-{v:stats.cumplidos,l:'Trámites cumplidos',i:'checkCircle'},
-
-{v:stats.alertasSinLeer,l:'Alertas sin leer',i:'bell'},
-
-].map(s=>(
-
-<div key={s.l} className="rounded-xl p-4"
-style={{background:'rgba(255,255,255,0.12)'}}>
-
-<div className="flex items-center gap-2 mb-1">
-
-<Ic n={s.i} s={14} c="rgba(255,255,255,0.7)"/>
-
-<span className="text-green-200 text-xs">{s.l}</span>
-
-</div>
-
-<p className="text-3xl font-bold text-white">{s.v}</p>
-
-</div>
-
-))}
-
-</div>
-
-</div>
-
-</div>
-
-{/* Client grid */}
-
-<div className="px-8 py-6">
-
-<div className="flex items-center justify-between mb-5">
-
-<h2 className="text-lg font-bold text-gray-900">Proyectos de
-clientes</h2>
-
-<div className="flex gap-3">
-
-<div className="relative">
-
-<input value={search} onChange={e=>setSearch(e.target.value)}
-placeholder="Buscar cliente..."
-
-className="pl-8 pr-4 py-2 border border-gray-200 rounded-lg text-sm
-bg-white focus:outline-none focus:ring-2 focus:ring-green-700 w-52"/>
-
-<Ic n="users" s={14} cls="absolute left-2.5 top-2.5
-text-gray-400"/>
-
-</div>
-
-<Btn
-onClick={()=>{setShowNew(true);setTempPwd('');setFormError('');}}>
-
-<Ic n="plus" s={14}/>Nuevo cliente
-
-</Btn>
-
-</div>
-
-</div>
-
-{proyectos.length===0?(
-
-<div className="flex flex-col items-center justify-center py-20">
-
-<div className="w-16 h-16 rounded-full bg-green-100 flex items-center
-justify-center mb-4">
-
-<Ic n="users" s={28} c="#166534"/>
-
-</div>
-
-<p className="text-lg font-semibold text-gray-600">Sin clientes
-registrados</p>
-
-<p className="text-sm text-gray-400 mt-1">Crea el primer proyecto de
-cliente para comenzar</p>
-
-<Btn className="mt-4" onClick={()=>setShowNew(true)}><Ic
-n="plus" s={14}/>Crear primer cliente</Btn>
-
-</div>
-
-):(
-
-<div className="grid grid-cols-3 gap-5">
-
-{proyectos.map(p=>{
-
-const u=getClientUser(p.id);
-
-if(!u)return null;
-
-const pct=getPctCompliance(p);
-
-const tramCount=(p.tramites||[]).length;
-
-const alertCount=(p.alertas||[]).filter(a=>!a.leido).length;
-
-const gc=giroColor(u.giro);
-
-return(
-
-<div key={p.id} className="client-card bg-white rounded-2xl border
-border-gray-100 shadow-sm hover:shadow-lg transition-all overflow-hidden
-cursor-pointer group"
-
-onClick={()=>onEnterProject(p.id)}>
-
-{/* Color top bar */}
-
-<div className="h-1.5 w-full"
-style={{background:`linear-gradient(90deg,${gc},${gc}88)`}}/>
-
-<div className="p-5">
-
-<div className="flex items-start justify-between mb-3">
-
-<div className="flex items-center gap-3">
-
-<div className="w-10 h-10 rounded-xl flex items-center justify-center
-font-bold text-white text-sm"
-
-style={{background:gc}}>
-
-{u.empresa.slice(0,2).toUpperCase()}
-
-</div>
-
-<div>
-
-<p className="font-semibold text-gray-900 text-sm
-leading-tight">{u.empresa}</p>
-
-<p className="text-xs text-gray-400">{giroLabel(u.giro)}</p>
-
-</div>
-
-</div>
-
-{alertCount>0&&(
-
-<span className="bg-red-100 text-red-600 text-xs font-bold px-2 py-0.5
-rounded-full">{alertCount}</span>
-
-)}
-
-</div>
-
-<p className="text-xs text-gray-500 mb-3">{u.nombre} ·
-{u.email}</p>
-
-<div className="flex gap-3 mb-3">
-
-<div className="text-center">
-
-<p className="text-xl font-bold text-gray-800">{tramCount}</p>
-
-<p className="text-[10px] text-gray-400">Trámites</p>
-
-</div>
-
-<div className="text-center">
-
-<p className="text-xl font-bold"
-style={{color:alertCount>0?'#DC2626':'#9CA3AF'}}>{alertCount}</p>
-
-<p className="text-[10px] text-gray-400">Alertas</p>
-
-</div>
-
-<div className="text-center flex-1">
-
-{p.cuestionario?.respondido?<p className="text-[10px] text-green-700
-font-medium mt-1">✓ Diagnóstico listo</p>:<p
-className="text-[10px] text-amber-600 font-medium mt-1">⚠
-Diagnóstico pendiente</p>}
-
-</div>
-
-</div>
-
-{pct!==null&&(
-
-<div className="mb-3">
-
-<div className="flex justify-between text-[10px] text-gray-400
-mb-1">
-
-<span>Cumplimiento</span><span
-className="font-medium">{pct}%</span>
-
-</div>
-
-<div className="h-1.5 rounded-full bg-gray-100 overflow-hidden">
-
-<div className="h-full rounded-full transition-all"
-style={{width:`${pct}%`,background:pct===100?'#10B981':pct>50?'#3B82F6':'#F59E0B'}}/>
-
-</div>
-
-</div>
-
-)}
-
-<div className="flex items-center justify-between mt-3 pt-3 border-t
-border-gray-50">
-
-<span className="text-[10px] text-gray-400">Creado
-{fmtDate(p.creado)}</span>
-
-<div className="flex items-center gap-1 text-green-700 text-xs
-font-medium">
-
-<span>Entrar</span>
-
-<Ic n="cr" s={13} c="#166534" cls="client-arrow"/>
-
-</div>
-
-</div>
-
-</div>
-
-{/* Delete button */}
-
-<button onClick={e=>{e.stopPropagation();setConfirmDel(p.id);}}
-
-className="absolute top-3 right-3 opacity-0 group-hover:opacity-100
-p-1.5 rounded-lg bg-red-50 hover:bg-red-100 transition-all"
-
-title="Eliminar cliente">
-
-<Ic n="trash" s={13} c="#DC2626"/>
-
-</button>
-
-</div>
-
-);
-
-})}
-
-</div>
-
-)}
-
-</div>
-
-{/* New client modal */}
-
-<Modal open={showNew} onClose={()=>setShowNew(false)}
-title="Registrar nuevo cliente" width="max-w-xl">
-
-{tempPwd?(
-
-<div className="text-center py-4">
-
-<div className="w-14 h-14 rounded-full bg-green-100 flex items-center
-justify-center mx-auto mb-3">
-
-<Ic n="checkCircle" s={28} c="#166534"/>
-
-</div>
-
-<h3 className="font-semibold text-gray-900 mb-1">Cliente creado
-exitosamente</h3>
-
-<p className="text-sm text-gray-500 mb-4">Comparte estas
-credenciales de acceso con tu cliente:</p>
-
-<div className="bg-gray-50 rounded-xl p-4 text-left mb-4">
-
-<p className="text-xs text-gray-500 mb-1">Email</p>
-
-<p className="font-medium text-gray-800 text-sm
-mb-3">{form.email||data.usuarios[data.usuarios.length-1]?.email}</p>
-
-<p className="text-xs text-gray-500 mb-1">Contraseña temporal</p>
-
-<div className="flex items-center gap-2">
-
-<p className="font-mono font-bold text-green-800
-text-lg">{tempPwd}</p>
-
-</div>
-
-</div>
-
-<p className="text-xs text-gray-400 mb-4">Recuerda pedirle al
-cliente que cambie su contraseña al ingresar.</p>
-
-<Btn
-onClick={()=>{setShowNew(false);setTempPwd('');}}>Cerrar</Btn>
-
-</div>
-
-):(
-
-<div className="space-y-3">
-
-{formError&&<div className="p-3 bg-red-50 border border-red-200
-rounded-lg text-xs text-red-600">{formError}</div>}
-
-<div className="grid grid-cols-2 gap-3">
-
-<Input label="Nombre del responsable" value={form.nombre}
-onChange={v=>setF('nombre',v)} placeholder="Juan García"
-required/>
-
-<Input label="Empresa / Razón social" value={form.empresa}
-onChange={v=>setF('empresa',v)} placeholder="ACME S.A. de C.V."
-required/>
-
-</div>
-
-<Select label="Giro industrial" value={form.giro}
-onChange={v=>setF('giro',v)}
-options={GIROS.map(g=>({value:g.id,label:g.label}))} required/>
-
-<Input label="Correo electrónico del cliente" value={form.email}
-onChange={v=>setF('email',v)} type="email"
-placeholder="cliente@empresa.com" required/>
-
-<Input label="Contraseña (dejar vacío = auto-generada)"
-value={form.pwd} onChange={v=>setF('pwd',v)} type="password"
-placeholder="Opcional --- mínimo 6 caracteres"/>
-
-<div className="flex flex-col gap-1">
-
-<label className="text-xs font-medium text-gray-600">Notas internas
-del proyecto</label>
-
-<textarea value={form.notas}
-onChange={e=>setF('notas',e.target.value)} rows={2}
-placeholder="Notas visibles solo para el consultor..."
-
-className="border border-gray-200 rounded-lg px-3 py-2 text-sm
-focus:outline-none focus:ring-2 focus:ring-green-700 resize-none"/>
-
-</div>
-
-<div className="flex justify-end gap-2 pt-2">
-
-<Btn variant="secondary"
-onClick={()=>setShowNew(false)}>Cancelar</Btn>
-
-<Btn onClick={createClient}><Ic n="plus" s={14}/>Crear
-cliente</Btn>
-
-</div>
-
-</div>
-
-)}
-
-</Modal>
-
-{/* Confirm delete */}
-
-<Modal open={!!confirmDel} onClose={()=>setConfirmDel(null)}
-title="Eliminar cliente" width="max-w-sm">
-
-<div className="text-center py-2">
-
-<div className="w-12 h-12 rounded-full bg-red-100 flex items-center
-justify-center mx-auto mb-3">
-
-<Ic n="trash" s={22} c="#DC2626"/>
-
-</div>
-
-<p className="text-sm text-gray-600 mb-4">¿Estás seguro? Se
-eliminarán todos los datos del proyecto del cliente. Esta acción no se
-puede deshacer.</p>
-
-<div className="flex gap-2 justify-center">
-
-<Btn variant="secondary"
-onClick={()=>setConfirmDel(null)}>Cancelar</Btn>
-
-<Btn variant="danger"
-onClick={()=>deleteProject(confirmDel)}>Eliminar</Btn>
-
-</div>
-
-</div>
-
-</Modal>
-
-</div>
-
-);
-
+import { fmtDate, today, giroLabel, giroColor } from './utils';
+
+export function ConsultantHome({ currentUser, onEnterProject, onLogout }) {
+    const [proyectos, setProyectos] = useState([]);
+    const [isLoading, setIsLoading] = useState(true);
+
+    const [showNew, setShowNew] = useState(false);
+    const [search, setSearch] = useState('');
+    const [form, setForm] = useState({ nombre: '', empresa: '', giro: GIROS[0]?.id || '', email: '', pwd: '', notas: '' });
+    const [formError, setFormError] = useState('');
+    const [tempPwd, setTempPwd] = useState('');
+    const [confirmDel, setConfirmDel] = useState(null);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+
+    const setF = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+    // 1. Arquitectura: Fetch de datos relacionales desde PostgreSQL
+    const fetchProyectos = async () => {
+        setIsLoading(true);
+        try {
+            const { data, error } = await supabase
+                .from('proyectos')
+                .select(`
+          *,
+          cliente:cliente_id (*),
+          tramites (*),
+          alertas (*)
+        `)
+                .eq('consultor_id', currentUser.id)
+                .order('created_at', { ascending: false });
+
+            if (error) throw error;
+            setProyectos(data || []);
+        } catch (err) {
+            console.error("Error cargando proyectos:", err);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchProyectos();
+    }, []);
+
+    // Filtrado de búsqueda
+    const proyectosFiltrados = proyectos.filter(p => {
+        if (!search) return true;
+        const term = search.toLowerCase();
+        return (
+            (p.cliente?.empresa || '').toLowerCase().includes(term) ||
+            (p.cliente?.nombre || '').toLowerCase().includes(term)
+        );
+    });
+
+    // Estadísticas dinámicas
+    const stats = {
+        clientes: proyectos.length,
+        tramitesActivos: proyectos.reduce((a, p) => a + (p.tramites || []).filter(t => ['recopilando', 'ingresado', 'en_revision'].includes(t.estado)).length, 0),
+        alertasSinLeer: proyectos.reduce((a, p) => a + (p.alertas || []).filter(al => !al.leido).length, 0),
+        cumplidos: proyectos.reduce((a, p) => a + (p.tramites || []).filter(t => t.estado === 'cumplido').length, 0),
+    };
+
+    // 2. Seguridad: Creación conectada al backend
+    const createClient = async () => {
+        if (!form.nombre || !form.empresa || !form.giro || !form.email) {
+            setFormError('Completa nombre, empresa, giro y email.');
+            return;
+        }
+
+        const pwdToUse = form.pwd || Math.random().toString(36).slice(2, 10);
+        setIsSubmitting(true);
+        setFormError('');
+
+        try {
+            // NOTA: Para que esto funcione, debes agregar una ruta '/api/registro-consultor' 
+            // en tu backend de Node.js que cree el usuario sin pedir confirmación de email (o mandando un email de bienvenida)
+            const res = await fetch('http://localhost:3000/api/registro', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    nombre: form.nombre,
+                    empresa: form.empresa,
+                    giro: form.giro,
+                    email: form.email,
+                    pwd: pwdToUse
+                })
+            });
+
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Error al crear cliente');
+
+            // Obtenemos el ID del nuevo cliente (el backend debería devolverlo)
+            // Si usas el endpoint de registro actual que no devuelve el ID, tendrías que buscarlo:
+            const { data: newUser } = await supabase.from('usuarios').select('id').eq('email', form.email).single();
+
+            if (newUser) {
+                // Crear el proyecto vinculado en Supabase
+                await supabase.from('proyectos').insert([{
+                    cliente_id: newUser.id,
+                    consultor_id: currentUser.id,
+                    nombre: `Proyecto ${form.empresa}`,
+                    iso14001: { secciones: { '4': {}, '5': {}, '6': {}, '7': {}, '8': {}, '9': {}, '10': {} } },
+                    notas: form.notas
+                }]);
+            }
+
+            setTempPwd(pwdToUse);
+            fetchProyectos(); // Recargar la lista
+        } catch (err) {
+            setFormError(err.message);
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    const deleteProject = async (pId) => {
+        setIsSubmitting(true);
+        try {
+            // Gracias a "ON DELETE CASCADE" en SQL, esto borrará trámites y alertas automáticamente
+            await supabase.from('proyectos').delete().eq('id', pId);
+            setProyectos(prev => prev.filter(p => p.id !== pId));
+        } catch (err) {
+            console.error("Error eliminando proyecto:", err);
+        } finally {
+            setConfirmDel(null);
+            setIsSubmitting(false);
+        }
+    };
+
+    const getPctCompliance = (p) => {
+        const t = p.tramites || [];
+        if (!t.length) return null;
+        return Math.round((t.filter(x => x.estado === 'cumplido').length / t.length) * 100);
+    };
+
+    if (isLoading) {
+        return <div className="min-h-screen flex items-center justify-center font-black uppercase text-2xl">Cargando panel...</div>;
+    }
+
+    return (
+        // 3. Diseño: Layout Principal Neo-Brutalista
+        <div className="min-h-screen bg-white text-black font-sans">
+
+            {/* ── HEADER ── */}
+            <div className="bg-emerald-400 border-b-4 border-black px-8 py-8 relative overflow-hidden">
+                {/* Decoraciones Memphis */}
+                <div className="absolute top-4 right-20 w-16 h-16 bg-yellow-300 border-4 border-black rounded-full" />
+                <div className="absolute -bottom-8 right-40 w-24 h-24 bg-blue-400 border-4 border-black rotate-12" />
+
+                <div className="relative z-10">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                            <div className="w-14 h-14 bg-white border-4 border-black flex items-center justify-center shadow-[4px_4px_0px_rgba(0,0,0,1)]">
+                                <Ic n="leaf" s={28} c="#000" />
+                            </div>
+                            <div>
+                                <p className="text-black font-black text-3xl uppercase tracking-tighter leading-none">EnviroGest MX</p>
+                                <p className="text-black font-bold text-sm uppercase tracking-widest mt-1 bg-white inline-block px-2 border-2 border-black">
+                                    Panel del Consultor
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-4">
+                            <div className="text-right bg-white border-4 border-black px-4 py-2 shadow-[4px_4px_0px_rgba(0,0,0,1)]">
+                                <p className="text-black font-black text-sm uppercase">{currentUser.nombre}</p>
+                                <p className="text-gray-600 font-bold text-xs">{currentUser.email}</p>
+                            </div>
+                            <button
+                                onClick={onLogout}
+                                className="w-12 h-12 bg-red-400 hover:bg-red-500 border-4 border-black flex items-center justify-center shadow-[4px_4px_0px_rgba(0,0,0,1)] hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-[2px_2px_0px_rgba(0,0,0,1)] transition-all"
+                                title="Cerrar Sesión"
+                            >
+                                <Ic n="logout" s={20} c="#000" />
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Stats */}
+                    <div className="grid grid-cols-4 gap-6 mt-10">
+                        {[
+                            { v: stats.clientes, l: 'Clientes activos', i: 'users', bg: 'bg-yellow-300' },
+                            { v: stats.tramitesActivos, l: 'En proceso', i: 'file', bg: 'bg-white' },
+                            { v: stats.cumplidos, l: 'Cumplidos', i: 'checkCircle', bg: 'bg-blue-300' },
+                            { v: stats.alertasSinLeer, l: 'Alertas', i: 'bell', bg: 'bg-red-300' },
+                        ].map(s => (
+                            <div key={s.l} className={`${s.bg} border-4 border-black p-5 shadow-[6px_6px_0px_rgba(0,0,0,1)]`}>
+                                <div className="flex items-center gap-2 mb-2">
+                                    <Ic n={s.i} s={16} c="#000" />
+                                    <span className="text-black font-bold text-xs uppercase tracking-wider">{s.l}</span>
+                                </div>
+                                <p className="text-5xl font-black text-black leading-none">{s.v}</p>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
+
+            {/* ── CLIENT GRID ── */}
+            <div className="px-8 py-10">
+                <div className="flex items-center justify-between mb-8 border-b-4 border-black pb-4">
+                    <h2 className="text-4xl font-black text-black uppercase tracking-tighter">Proyectos</h2>
+
+                    <div className="flex gap-4">
+                        <div className="relative">
+                            <input
+                                value={search}
+                                onChange={e => setSearch(e.target.value)}
+                                placeholder="BUSCAR CLIENTE..."
+                                className="pl-10 pr-4 py-3 border-4 border-black text-sm font-bold uppercase focus:outline-none focus:bg-yellow-100 w-64 shadow-[4px_4px_0px_rgba(0,0,0,1)] transition-colors"
+                            />
+                            <Ic n="users" s={18} cls="absolute left-3 top-3.5 text-black" />
+                        </div>
+
+                        <button
+                            onClick={() => { setShowNew(true); setTempPwd(''); setFormError(''); }}
+                            className="bg-black text-white hover:bg-gray-800 border-4 border-black px-6 py-3 font-black uppercase text-sm flex items-center gap-2 shadow-[4px_4px_0px_rgba(0,0,0,1)] hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-all"
+                        >
+                            <Ic n="plus" s={16} /> Nuevo Cliente
+                        </button>
+                    </div>
+                </div>
+
+                {proyectosFiltrados.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-20 border-4 border-dashed border-gray-300 bg-gray-50">
+                        <Ic n="users" s={48} c="#9CA3AF" />
+                        <p className="text-black font-black uppercase tracking-widest text-xl mt-4">Sin resultados</p>
+                        <p className="text-gray-500 font-bold uppercase text-sm mt-1">No se encontraron clientes.</p>
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                        {proyectosFiltrados.map(p => {
+                            const u = p.cliente;
+                            if (!u) return null;
+
+                            const pct = getPctCompliance(p);
+                            const tramCount = (p.tramites || []).length;
+                            const alertCount = (p.alertas || []).filter(a => !a.leido).length;
+                            const gc = giroColor(u.giro); // Usamos la utilidad de color del giro
+
+                            return (
+                                <div
+                                    key={p.id}
+                                    className="bg-white border-4 border-black shadow-[8px_8px_0px_rgba(0,0,0,1)] hover:translate-x-1 hover:-translate-y-1 hover:shadow-[12px_12px_0px_rgba(0,0,0,1)] transition-all cursor-pointer flex flex-col relative group"
+                                    onClick={() => onEnterProject(p.id)}
+                                >
+                                    <div className="h-3 border-b-4 border-black w-full" style={{ background: gc }} />
+
+                                    <div className="p-6 flex-1 flex flex-col">
+                                        <div className="flex items-start justify-between mb-4">
+                                            <div>
+                                                <p className="font-black text-xl text-black leading-tight uppercase line-clamp-2">{u.empresa}</p>
+                                                <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mt-1 bg-gray-100 inline-block px-1 border border-black">{giroLabel(u.giro)}</p>
+                                            </div>
+                                            {alertCount > 0 && (
+                                                <div className="bg-red-400 border-2 border-black w-10 h-10 flex items-center justify-center shadow-[2px_2px_0px_rgba(0,0,0,1)] rounded-full shrink-0">
+                                                    <span className="font-black text-black text-sm">{alertCount}</span>
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        <p className="text-sm font-bold text-gray-700 mb-6 flex items-center gap-2">
+                                            <Ic n="user" s={14} /> {u.nombre}
+                                        </p>
+
+                                        <div className="flex gap-4 mb-6 mt-auto">
+                                            <div className="flex-1 bg-gray-50 border-2 border-black p-2 text-center">
+                                                <p className="text-2xl font-black text-black">{tramCount}</p>
+                                                <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Trámites</p>
+                                            </div>
+                                            <div className="flex-1 bg-gray-50 border-2 border-black p-2 text-center">
+                                                <p className={`text-2xl font-black ${alertCount > 0 ? 'text-red-600 animate-pulse' : 'text-black'}`}>{alertCount}</p>
+                                                <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Alertas</p>
+                                            </div>
+                                        </div>
+
+                                        {pct !== null && (
+                                            <div className="mb-4 bg-gray-100 border-2 border-black p-2">
+                                                <div className="flex justify-between text-xs font-black uppercase mb-2">
+                                                    <span>Progreso ISO</span>
+                                                    <span>{pct}%</span>
+                                                </div>
+                                                <div className="h-3 border-2 border-black bg-white w-full">
+                                                    <div className="h-full bg-emerald-400" style={{ width: `${pct}%` }} />
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Delete button (aparece en hover) */}
+                                    <button
+                                        onClick={e => { e.stopPropagation(); setConfirmDel(p.id); }}
+                                        className="absolute top-6 right-6 opacity-0 group-hover:opacity-100 w-8 h-8 bg-white hover:bg-red-500 hover:text-white border-2 border-black flex items-center justify-center transition-all"
+                                        title="Eliminar cliente"
+                                    >
+                                        <Ic n="trash" s={14} />
+                                    </button>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+            </div>
+
+            {/* ── MODALES ── */}
+            {/* NOTA: Para que los modales coincidan con el diseño Neo-Brutalista, asegúrate de que 
+        el componente `<Modal>` en `ui.jsx` tenga bordes negros gruesos y sombras sólidas.
+      */}
+            <Modal open={showNew} onClose={() => setShowNew(false)} title="NUEVO CLIENTE" width="max-w-xl">
+                {tempPwd ? (
+                    <div className="text-center py-6">
+                        <div className="w-20 h-20 bg-emerald-400 border-4 border-black flex items-center justify-center mx-auto mb-6 shadow-[6px_6px_0px_rgba(0,0,0,1)] rotate-3">
+                            <Ic n="checkCircle" s={36} c="#000" />
+                        </div>
+                        <h3 className="font-black text-2xl uppercase text-black mb-2">Cliente Creado</h3>
+                        <p className="text-sm font-bold text-gray-500 uppercase tracking-widest mb-6">Comparte estas credenciales:</p>
+
+                        <div className="bg-yellow-100 border-4 border-black p-6 text-left mb-8 shadow-[4px_4px_0px_rgba(0,0,0,1)]">
+                            <p className="text-xs font-black uppercase text-gray-500 mb-1">Email</p>
+                            <p className="font-black text-black text-lg mb-4">{form.email}</p>
+
+                            <p className="text-xs font-black uppercase text-gray-500 mb-1">Contraseña temporal</p>
+                            <p className="font-mono font-black text-red-600 text-2xl bg-white border-2 border-black inline-block px-3 py-1">{tempPwd}</p>
+                        </div>
+
+                        <button
+                            onClick={() => { setShowNew(false); setTempPwd(''); }}
+                            className="bg-black text-white hover:bg-gray-800 border-4 border-black px-8 py-3 font-black uppercase text-sm shadow-[4px_4px_0px_rgba(0,0,0,1)]"
+                        >
+                            Cerrar
+                        </button>
+                    </div>
+                ) : (
+                    <div className="space-y-4">
+                        {formError && (
+                            <div className="p-3 bg-red-400 border-4 border-black text-black font-bold text-sm uppercase flex items-center gap-2">
+                                <Ic n="alert" s={16} /> {formError}
+                            </div>
+                        )}
+
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-1">
+                                <label className="text-xs font-black uppercase text-black">Responsable</label>
+                                <input className="w-full border-4 border-black px-3 py-2 font-bold focus:bg-yellow-100 outline-none" value={form.nombre} onChange={e => setF('nombre', e.target.value)} required />
+                            </div>
+                            <div className="space-y-1">
+                                <label className="text-xs font-black uppercase text-black">Empresa</label>
+                                <input className="w-full border-4 border-black px-3 py-2 font-bold focus:bg-yellow-100 outline-none" value={form.empresa} onChange={e => setF('empresa', e.target.value)} required />
+                            </div>
+                        </div>
+
+                        <div className="space-y-1">
+                            <label className="text-xs font-black uppercase text-black">Giro Industrial</label>
+                            <select className="w-full border-4 border-black px-3 py-2 font-bold focus:bg-yellow-100 outline-none cursor-pointer bg-white" value={form.giro} onChange={e => setF('giro', e.target.value)} required>
+                                {GIROS.map(g => <option key={g.id} value={g.id}>{g.label}</option>)}
+                            </select>
+                        </div>
+
+                        <div className="space-y-1">
+                            <label className="text-xs font-black uppercase text-black">Correo</label>
+                            <input type="email" className="w-full border-4 border-black px-3 py-2 font-bold focus:bg-yellow-100 outline-none" value={form.email} onChange={e => setF('email', e.target.value)} required />
+                        </div>
+
+                        <div className="space-y-1">
+                            <label className="text-xs font-black uppercase text-black">Contraseña (vacío = auto-generar)</label>
+                            <input type="password" placeholder="Opcional" className="w-full border-4 border-black px-3 py-2 font-bold focus:bg-yellow-100 outline-none" value={form.pwd} onChange={e => setF('pwd', e.target.value)} />
+                        </div>
+
+                        <div className="flex justify-end gap-4 pt-4 mt-6 border-t-4 border-black">
+                            <button
+                                className="bg-white border-4 border-black px-6 py-2 font-black uppercase hover:bg-gray-100 shadow-[4px_4px_0px_rgba(0,0,0,1)]"
+                                onClick={() => setShowNew(false)}
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={createClient}
+                                disabled={isSubmitting}
+                                className="bg-emerald-400 border-4 border-black px-6 py-2 font-black uppercase hover:bg-emerald-300 shadow-[4px_4px_0px_rgba(0,0,0,1)] disabled:opacity-50 flex items-center gap-2"
+                            >
+                                {isSubmitting ? 'Creando...' : <><Ic n="plus" s={16} /> Confirmar</>}
+                            </button>
+                        </div>
+                    </div>
+                )}
+            </Modal>
+
+            <Modal open={!!confirmDel} onClose={() => setConfirmDel(null)} title="¡ADVERTENCIA!" width="max-w-sm">
+                <div className="text-center py-4">
+                    <div className="w-16 h-16 bg-red-400 border-4 border-black flex items-center justify-center mx-auto mb-4 shadow-[6px_6px_0px_rgba(0,0,0,1)]">
+                        <Ic n="trash" s={28} c="#000" />
+                    </div>
+                    <p className="text-sm font-bold text-gray-800 uppercase mb-8 leading-relaxed">
+                        ¿Estás seguro? Se borrará todo el historial del cliente. Esta acción es <span className="text-red-600 font-black">irreversible</span>.
+                    </p>
+
+                    <div className="flex gap-4 justify-center">
+                        <button
+                            className="bg-white border-4 border-black px-6 py-2 font-black uppercase hover:bg-gray-100 shadow-[4px_4px_0px_rgba(0,0,0,1)]"
+                            onClick={() => setConfirmDel(null)}
+                        >
+                            Cancelar
+                        </button>
+                        <button
+                            onClick={() => deleteProject(confirmDel)}
+                            disabled={isSubmitting}
+                            className="bg-red-500 text-white border-4 border-black px-6 py-2 font-black uppercase hover:bg-red-600 shadow-[4px_4px_0px_rgba(0,0,0,1)] disabled:opacity-50"
+                        >
+                            {isSubmitting ? 'Borrando...' : 'Destruir'}
+                        </button>
+                    </div>
+                </div>
+            </Modal>
+
+        </div>
+    );
 }
-
-/* ── SIDEBAR (workspace) ─────────────────── */
 
 export default ConsultantHome;

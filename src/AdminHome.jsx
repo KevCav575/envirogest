@@ -1,45 +1,69 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
 import { Ic, GIROS } from './constants';
 import { Btn, Input, Select, Modal } from './ui';
-import { hashPwd, uid, fmtDate, today, giroLabel, giroColor } from './utils';
+import { today, giroLabel, giroColor } from './utils'; // Ya no importamos hashPwd ni uid
 
-export function AdminHome({ data, refreshData, currentUser, onEnterProject, onLogout }) {
+export function AdminHome({ currentUser, onEnterProject, onLogout }) {
+    // Estados de datos
+    const [usuarios, setUsuarios] = useState([]);
+    const [proyectos, setProyectos] = useState([]);
+    const [isLoading, setIsLoading] = useState(true);
+
+    // Estados de UI
     const [tab, setTab] = useState('clientes');
     const [showNewClient, setShowNewClient] = useState(false);
     const [showNewConsultor, setShowNewConsultor] = useState(false);
     const [confirmDel, setConfirmDel] = useState(null);
     const [tempCreds, setTempCreds] = useState(null);
-    const [clientForm, setClientForm] = useState({ nombre: '', empresa: '', giro: '', email: '', pwd: '', consultor_id: '', notas: '' });
-    const [consultorForm, setConsultorForm] = useState({ nombre: '', email: '', pwd: '' });
-    const [formErr, setFormErr] = useState('');
     const [expandedConsultor, setExpandedConsultor] = useState(null);
     const [showMeeting, setShowMeeting] = useState(null);
     const [showInstr, setShowInstr] = useState(null);
     const [isProcessing, setIsProcessing] = useState(false);
-
-    const [meetForm, setMeetForm] = useState({
-        titulo: 'Reunión de seguimiento', fecha: '', hora: '10:00', duracion: '60', agenda: '', correo_extra: ''
-    });
-
-    const [instrForm, setInstrForm] = useState({ texto: '', urgente: false });
+    const [formErr, setFormErr] = useState('');
     const [meetLink, setMeetLink] = useState('');
+
+    // Formularios
+    const [clientForm, setClientForm] = useState({ nombre: '', empresa: '', giro: GIROS[0]?.id || '', email: '', pwd: '', consultor_id: '', notas: '' });
+    const [consultorForm, setConsultorForm] = useState({ nombre: '', email: '', pwd: '' });
+    const [meetForm, setMeetForm] = useState({ titulo: 'Reunión de seguimiento', fecha: '', hora: '10:00', duracion: '60', agenda: '', correo_extra: '' });
+    const [instrForm, setInstrForm] = useState({ texto: '', urgente: false });
 
     const setC = (k, v) => setClientForm(f => ({ ...f, [k]: v }));
     const setCo = (k, v) => setConsultorForm(f => ({ ...f, [k]: v }));
 
-    const clientes = data.usuarios.filter(u => u.rol === 'cliente');
-    const consultores = data.usuarios.filter(u => u.rol === 'consultor');
+    // 1. CARGA DE DATOS DESDE SUPABASE
+    const refreshData = async () => {
+        setIsLoading(true);
+        try {
+            const [usrRes, proyRes] = await Promise.all([
+                supabase.from('usuarios').select('*'),
+                supabase.from('proyectos').select('*, tramites(*), alertas(*), instrucciones_admin(*), reuniones(*)')
+            ]);
+            setUsuarios(usrRes.data || []);
+            setProyectos(proyRes.data || []);
+        } catch (err) {
+            console.error("Error cargando datos de admin:", err);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    useEffect(() => { refreshData(); }, []);
+
+    // Derivados
+    const clientes = usuarios.filter(u => u.rol === 'cliente');
+    const consultores = usuarios.filter(u => u.rol === 'consultor');
 
     const stats = {
         clientes: clientes.length,
         consultores: consultores.length,
-        proyectos: data.proyectos.length,
-        tramitesActivos: data.proyectos.reduce((a, p) => a + (p.tramites || []).filter(t => ['recopilando', 'ingresado', 'en_revision'].includes(t.estado)).length, 0),
-        alertasSinLeer: data.proyectos.reduce((a, p) => a + (p.alertas || []).filter(al => !al.leido).length, 0),
+        proyectos: proyectos.length,
+        tramitesActivos: proyectos.reduce((a, p) => a + (p.tramites || []).filter(t => ['recopilando', 'ingresado', 'en_revision'].includes(t.estado)).length, 0),
+        alertasSinLeer: proyectos.reduce((a, p) => a + (p.alertas || []).filter(al => !al.leido).length, 0),
     };
 
-    const getProyectoByCliente = (clientId) => data.proyectos.find(p => p.cliente_id === clientId);
+    const getProyectoByCliente = (clientId) => proyectos.find(p => p.cliente_id === clientId);
 
     const getPct = (p) => {
         const t = p?.tramites || [];
@@ -48,8 +72,8 @@ export function AdminHome({ data, refreshData, currentUser, onEnterProject, onLo
     };
 
     const TRAM_ESTADO = {
-        no_aplica: ['No aplica', '#9CA3AF'],
-        recopilando: ['Recopilando docs', '#F59E0B'],
+        no_aplica: ['No aplica', '#000000'],
+        recopilando: ['Recopilando', '#F59E0B'],
         ingresado: ['Ingresado', '#3B82F6'],
         en_revision: ['En revisión', '#8B5CF6'],
         resolucion: ['Resolución', '#06B6D4'],
@@ -57,6 +81,7 @@ export function AdminHome({ data, refreshData, currentUser, onEnterProject, onLo
         vencido: ['VENCIDO', '#EF4444'],
     };
 
+    // GENERAR LINK GOOGLE CALENDAR
     const makeGCalLink = (titulo, fecha, hora, duracion, agenda, email) => {
         const pad = n => String(n).padStart(2, '0');
         const [y, m, d] = fecha.split('-');
@@ -74,106 +99,51 @@ export function AdminHome({ data, refreshData, currentUser, onEnterProject, onLo
         return `https://calendar.google.com/calendar/render?${p.toString()}`;
     };
 
-    const saveMeeting = async () => {
-        if (!meetForm.titulo || !meetForm.fecha || isProcessing) return;
-        setIsProcessing(true);
-
-        const c = showMeeting;
-        const link = makeGCalLink(meetForm.titulo, meetForm.fecha, meetForm.hora, meetForm.duracion, meetForm.agenda, c.email);
-        setMeetLink(link);
-
-        if (c.proyId) {
-            const { error } = await supabase.from('reuniones').insert([{
-                proyecto_id: c.proyId,
-                titulo: meetForm.titulo,
-                fecha: meetForm.fecha,
-                hora: meetForm.hora,
-                duracion: meetForm.duracion,
-                agenda: meetForm.agenda,
-                gcal_link: link,
-                creado: today()
-            }]);
-
-            if (!error) await refreshData();
-            else console.error("Error al agendar reunión:", error);
-        }
-        setIsProcessing(false);
-    };
-
-    const saveInstr = async () => {
-        if (!instrForm.texto.trim() || isProcessing) return;
-        setIsProcessing(true);
-
-        const { error } = await supabase.from('instrucciones_admin').insert([{
-            proyecto_id: showInstr.proyId,
-            texto: instrForm.texto,
-            urgente: instrForm.urgente,
-            fecha: today(),
-            leido: false
-        }]);
-
-        if (!error) {
-            await refreshData();
-            setInstrForm({ texto: '', urgente: false });
-            setShowInstr(null);
-        } else {
-            console.error("Error guardando instrucción:", error);
-        }
-        setIsProcessing(false);
-    };
-
-    const assignConsultor = async (proyId, cid) => {
-        const { error } = await supabase.from('proyectos')
-            .update({ consultor_id: cid || null })
-            .eq('id', proyId);
-
-        if (!error) await refreshData();
-    };
-
+    // 2. SEGURIDAD: CREACIÓN DE USUARIOS VÍA BACKEND
     const createClient = async () => {
         if (!clientForm.nombre || !clientForm.empresa || !clientForm.giro || !clientForm.email) {
             setFormErr('Completa nombre, empresa, giro y correo.'); return;
         }
-        if (data.usuarios.find(u => u.email === clientForm.email)) {
+        if (usuarios.find(u => u.email === clientForm.email)) {
             setFormErr('Ya existe una cuenta con ese correo.'); return;
         }
 
         setIsProcessing(true);
+        setFormErr('');
         const pwd = clientForm.pwd || Math.random().toString(36).slice(2, 10);
 
-        const { data: newUser, error: userError } = await supabase.from('usuarios').insert([{
-            nombre: clientForm.nombre,
-            empresa: clientForm.empresa,
-            giro: clientForm.giro,
-            email: clientForm.email,
-            pwd_hash: hashPwd(pwd),
-            rol: 'cliente'
-        }]).select().single();
+        try {
+            // Llamada al Backend para crear en Auth y en BD
+            const res = await fetch('http://localhost:3000/api/registro', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ nombre: clientForm.nombre, empresa: clientForm.empresa, giro: clientForm.giro, email: clientForm.email, pwd, rol: 'cliente' })
+            });
 
-        if (userError) {
-            setFormErr('Error al crear el usuario en Supabase.');
-            setIsProcessing(false);
-            return;
-        }
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Error al crear cliente');
 
-        const { error: projError } = await supabase.from('proyectos').insert([{
-            cliente_id: newUser.id,
-            consultor_id: clientForm.consultor_id || null,
-            creado: today(),
-            notas: clientForm.notas,
-            cuestionario: { respondido: false, respuestas: {}, fecha: null },
-            iso14001: { secciones: { '4': {}, '5': {}, '6': {}, '7': {}, '8': {}, '9': {}, '10': {} } }
-        }]);
+            // Buscar el ID del cliente recién creado
+            const { data: newUser } = await supabase.from('usuarios').select('id').eq('email', clientForm.email).single();
 
-        if (projError) {
-            setFormErr('Usuario creado, pero hubo un error con su proyecto.');
-        } else {
+            if (newUser) {
+                // Crear el proyecto vinculado
+                await supabase.from('proyectos').insert([{
+                    cliente_id: newUser.id,
+                    consultor_id: clientForm.consultor_id || null,
+                    notas: clientForm.notas,
+                    iso14001: { secciones: { '4': {}, '5': {}, '6': {}, '7': {}, '8': {}, '9': {}, '10': {} } }
+                }]);
+            }
+
             await refreshData();
             setTempCreds({ email: clientForm.email, pwd, tipo: 'cliente' });
-            setClientForm({ nombre: '', empresa: '', giro: '', email: '', pwd: '', consultor_id: '', notas: '' });
-            setFormErr('');
+            setClientForm({ nombre: '', empresa: '', giro: GIROS[0]?.id || '', email: '', pwd: '', consultor_id: '', notas: '' });
+        } catch (err) {
+            setFormErr(err.message);
+        } finally {
+            setIsProcessing(false);
         }
-        setIsProcessing(false);
     };
 
     const createConsultor = async () => {
@@ -183,190 +153,240 @@ export function AdminHome({ data, refreshData, currentUser, onEnterProject, onLo
         if (consultorForm.pwd.length < 6) {
             setFormErr('Contraseña mínimo 6 caracteres.'); return;
         }
-        if (data.usuarios.find(u => u.email === consultorForm.email)) {
+        if (usuarios.find(u => u.email === consultorForm.email)) {
             setFormErr('Ya existe una cuenta con ese correo.'); return;
         }
 
         setIsProcessing(true);
+        setFormErr('');
 
-        const { error } = await supabase.from('usuarios').insert([{
-            nombre: consultorForm.nombre,
-            empresa: 'BIOIMPACT',
-            email: consultorForm.email,
-            pwd_hash: hashPwd(consultorForm.pwd),
-            rol: 'consultor'
-        }]);
+        try {
+            // Llamada al Backend para crear Consultor (REQUIERE ACTUALIZAR req.body.rol EN server.js)
+            const res = await fetch('http://localhost:3000/api/registro', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ nombre: consultorForm.nombre, empresa: 'BIOIMPACT', giro: 'otro', email: consultorForm.email, pwd: consultorForm.pwd, rol: 'consultor' })
+            });
 
-        if (error) {
-            setFormErr('Error al crear el consultor.');
-        } else {
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Error al crear consultor');
+
             await refreshData();
             setTempCreds({ email: consultorForm.email, pwd: consultorForm.pwd, tipo: 'consultor' });
             setConsultorForm({ nombre: '', email: '', pwd: '' });
-            setFormErr('');
+        } catch (err) {
+            setFormErr(err.message);
+        } finally {
+            setIsProcessing(false);
         }
-        setIsProcessing(false);
     };
 
     const deleteEntry = async (type, id) => {
         setIsProcessing(true);
-        if (type === 'cliente') {
+        try {
+            if (type === 'consultor') {
+                await supabase.from('proyectos').update({ consultor_id: null }).eq('consultor_id', id);
+            }
             await supabase.from('usuarios').delete().eq('id', id);
-        } else {
-            await supabase.from('proyectos').update({ consultor_id: null }).eq('consultor_id', id);
-            await supabase.from('usuarios').delete().eq('id', id);
+            await refreshData();
+        } catch (err) {
+            console.error("Error al eliminar:", err);
+        } finally {
+            setConfirmDel(null);
+            setIsProcessing(false);
         }
+    };
+
+    const assignConsultor = async (proyId, cid) => {
+        setIsProcessing(true);
+        await supabase.from('proyectos').update({ consultor_id: cid || null }).eq('id', proyId);
         await refreshData();
-        setConfirmDel(null);
         setIsProcessing(false);
     };
 
-    return (
-        <div className="min-h-screen" style={{ background: '#F0FDF4' }}>
-            {/* Header */}
-            <div className="relative overflow-hidden" style={{ background: 'linear-gradient(135deg,#0a1628 0%,#14532d 50%,#1e40af 100%)' }}>
-                <div className="absolute inset-0 opacity-10" style={{ backgroundImage: "url('data:image/svg+xml,%3Csvg width=\"60\" height=\"60\" viewBox=\"0 0 60 60\" xmlns=\"http://www.w3.org/2000/svg\"%3E%3Cg fill=\"none\" fill-rule=\"evenodd\"%3E%3Cg fill=\"%23ffffff\" fill-opacity=\"1\"%3E%3Cpath d=\"M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\"/%3E%3C/g%3E%3C/g%3E%3C/svg%3E')" }} />
+    const saveMeeting = async () => {
+        if (!meetForm.titulo || !meetForm.fecha || isProcessing) return;
+        setIsProcessing(true);
 
-                <div className="relative px-8 py-6">
+        const c = showMeeting;
+        const link = makeGCalLink(meetForm.titulo, meetForm.fecha, meetForm.hora, meetForm.duracion, meetForm.agenda, c.email);
+        setMeetLink(link);
+
+        if (c.proyId) {
+            await supabase.from('reuniones').insert([{
+                proyecto_id: c.proyId, titulo: meetForm.titulo, fecha: meetForm.fecha, hora: meetForm.hora,
+                duracion: parseInt(meetForm.duracion), agenda: meetForm.agenda, gcal_link: link
+            }]);
+            await refreshData();
+        }
+        setIsProcessing(false);
+    };
+
+    const saveInstr = async () => {
+        if (!instrForm.texto.trim() || isProcessing) return;
+        setIsProcessing(true);
+
+        await supabase.from('instrucciones_admin').insert([{
+            proyecto_id: showInstr.proyId, texto: instrForm.texto, urgente: instrForm.urgente, fecha: today(), leido: false
+        }]);
+
+        await refreshData();
+        setInstrForm({ texto: '', urgente: false });
+        setShowInstr(null);
+        setIsProcessing(false);
+    };
+
+    if (isLoading) {
+        return <div className="min-h-screen flex items-center justify-center font-black uppercase text-2xl bg-white">Cargando Admin...</div>;
+    }
+
+    return (
+        // 3. DISEÑO NEO-BRUTALISTA APLICADO
+        <div className="min-h-screen bg-white text-black font-sans selection:bg-blue-300 pb-20">
+
+            {/* Header Admin */}
+            <div className="bg-blue-600 border-b-4 border-black px-8 py-8 relative overflow-hidden">
+                <div className="absolute top-4 right-20 w-16 h-16 bg-yellow-300 border-4 border-black rounded-full" />
+                <div className="absolute -bottom-8 right-40 w-24 h-24 bg-emerald-400 border-4 border-black rotate-12" />
+
+                <div className="relative z-10">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-4">
-                            <div className="w-11 h-11 rounded-xl flex items-center justify-center" style={{ background: 'rgba(255,255,255,0.15)' }}>
-                                <Ic n="shield" s={22} c="white" />
+                            <div className="w-14 h-14 bg-white border-4 border-black flex items-center justify-center shadow-[4px_4px_0px_rgba(0,0,0,1)]">
+                                <Ic n="shield" s={28} c="#000" />
                             </div>
                             <div>
-                                <p className="text-white font-bold text-lg">EnviroGest MX</p>
-                                <p className="text-blue-200 text-xs">BIOIMPACT · Panel de Administración</p>
+                                <p className="text-white font-black text-3xl uppercase tracking-tighter leading-none drop-shadow-[2px_2px_0px_rgba(0,0,0,1)]">EnviroGest MX</p>
+                                <p className="text-black font-bold text-sm uppercase tracking-widest mt-1 bg-white inline-block px-2 border-2 border-black">
+                                    Panel de Administración
+                                </p>
                             </div>
                         </div>
-                        <div className="flex items-center gap-3">
-                            <div className="text-right">
-                                <p className="text-white font-medium text-sm">{currentUser.nombre}</p>
-                                <p className="text-blue-200 text-xs">Administrador</p>
+
+                        <div className="flex items-center gap-4">
+                            <div className="text-right bg-white border-4 border-black px-4 py-2 shadow-[4px_4px_0px_rgba(0,0,0,1)]">
+                                <p className="text-black font-black text-sm uppercase">{currentUser.nombre}</p>
+                                <p className="text-gray-600 font-bold text-xs uppercase tracking-widest">Administrador</p>
                             </div>
-                            <button onClick={onLogout} className="p-2 rounded-lg text-white/70 hover:text-white" style={{ background: 'rgba(255,255,255,0.1)' }}>
-                                <Ic n="logout" s={16} />
+                            <button
+                                onClick={onLogout}
+                                className="w-12 h-12 bg-red-400 hover:bg-red-500 border-4 border-black flex items-center justify-center shadow-[4px_4px_0px_rgba(0,0,0,1)] hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-[2px_2px_0px_rgba(0,0,0,1)] transition-all"
+                            >
+                                <Ic n="logout" s={20} c="#000" />
                             </button>
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-5 gap-4 mt-6">
+                    {/* Stats Gigsntes */}
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mt-10">
                         {[
-                            { v: stats.clientes, l: 'Clientes', i: 'building' },
-                            { v: stats.consultores, l: 'Consultores', i: 'users' },
-                            { v: stats.proyectos, l: 'Proyectos', i: 'file' },
-                            { v: stats.tramitesActivos, l: 'Trámites activos', i: 'list' },
-                            { v: stats.alertasSinLeer, l: 'Alertas sin leer', i: 'bell' },
+                            { v: stats.clientes, l: 'Clientes', bg: 'bg-yellow-300' },
+                            { v: stats.consultores, l: 'Consultores', bg: 'bg-white' },
+                            { v: stats.proyectos, l: 'Proyectos', bg: 'bg-emerald-300' },
+                            { v: stats.tramitesActivos, l: 'Trám. Activos', bg: 'bg-pink-300' },
+                            { v: stats.alertasSinLeer, l: 'Alertas', bg: 'bg-red-400' },
                         ].map(s => (
-                            <div key={s.l} className="rounded-xl p-4" style={{ background: 'rgba(255,255,255,0.1)' }}>
-                                <div className="flex items-center gap-2 mb-1">
-                                    <Ic n={s.i} s={13} c="rgba(255,255,255,0.6)" />
-                                    <span className="text-xs" style={{ color: 'rgba(219,234,254,0.8)' }}>{s.l}</span>
-                                </div>
-                                <p className="text-3xl font-bold text-white">{s.v}</p>
+                            <div key={s.l} className={`${s.bg} border-4 border-black p-4 shadow-[4px_4px_0px_rgba(0,0,0,1)]`}>
+                                <p className="text-xs font-black uppercase tracking-widest text-black mb-1">{s.l}</p>
+                                <p className="text-4xl font-black text-black leading-none">{s.v}</p>
                             </div>
                         ))}
                     </div>
                 </div>
             </div>
 
-            {/* Tabs */}
-            <div className="px-8 pt-6">
-                <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit mb-6">
+            {/* Tabs y Contenido */}
+            <div className="px-8 mt-10 max-w-7xl mx-auto">
+
+                <div className="flex gap-2 mb-8 bg-gray-100 p-2 border-4 border-black w-fit shadow-[4px_4px_0px_rgba(0,0,0,1)]">
                     {[{ id: 'clientes', l: 'Clientes', i: 'building' }, { id: 'consultores', l: 'Consultores', i: 'users' }].map(t => (
-                        <button key={t.id} onClick={() => setTab(t.id)}
-                            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all"
-                            style={{
-                                background: tab === t.id ? 'white' : 'transparent',
-                                color: tab === t.id ? '#14532d' : '#6b7280',
-                                boxShadow: tab === t.id ? '0 1px 3px rgba(0, 0, 0, 0.1)' : 'none'
-                            }}>
-                            <Ic n={t.i} s={15} c={tab === t.id ? '#14532d' : '#9ca3af'} />{t.l}
+                        <button
+                            key={t.id}
+                            onClick={() => setTab(t.id)}
+                            className={`px-6 py-2 text-sm font-black uppercase tracking-wider transition-all border-2 flex items-center gap-2
+                                ${tab === t.id
+                                    ? 'bg-black text-white border-black shadow-[2px_2px_0px_rgba(59,130,246,1)]'
+                                    : 'bg-white text-black border-black hover:bg-gray-200'}`}
+                        >
+                            <Ic n={t.i} s={16} c={tab === t.id ? '#FFF' : '#000'} /> {t.l}
                         </button>
                     ))}
                 </div>
 
                 {/* ── CLIENTES TAB ── */}
                 {tab === 'clientes' && (
-                    <div>
-                        <div className="flex items-center justify-between mb-4">
-                            <h2 className="text-lg font-bold text-gray-900">Clientes registrados</h2>
+                    <div className="fade-in">
+                        <div className="flex items-center justify-between mb-6 border-b-4 border-black pb-4">
+                            <h2 className="text-4xl font-black text-black uppercase tracking-tighter">Directorio de Clientes</h2>
                             <Btn onClick={() => { setShowNewClient(true); setTempCreds(null); setFormErr(''); }}>
-                                <Ic n="plus" s={14} />Nuevo cliente
+                                <Ic n="plus" s={16} /> Nuevo Cliente
                             </Btn>
                         </div>
 
                         {clientes.length === 0 ? (
-                            <div className="flex flex-col items-center justify-center py-20">
-                                <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center mb-4">
-                                    <Ic n="building" s={28} c="#166534" />
-                                </div>
-                                <p className="text-lg font-semibold text-gray-600">Sin clientes registrados</p>
-                                <p className="text-sm text-gray-400 mt-1">Crea el primer cliente para asignarle un proyecto</p>
-                                <Btn className="mt-4" onClick={() => setShowNewClient(true)}><Ic n="plus" s={14} />Agregar cliente</Btn>
+                            <div className="flex flex-col items-center justify-center py-20 border-4 border-dashed border-gray-300 bg-gray-50">
+                                <Ic n="building" s={48} c="#9CA3AF" />
+                                <p className="text-black font-black uppercase tracking-widest text-xl mt-4">Sin clientes</p>
                             </div>
                         ) : (
-                            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden mb-8">
-                                <table className="w-full">
+                            <div className="bg-white border-4 border-black shadow-[8px_8px_0px_rgba(0,0,0,1)] overflow-x-auto">
+                                <table className="w-full text-left border-collapse">
                                     <thead>
-                                        <tr style={{ background: '#f9fafb' }}>
-                                            {['Empresa', 'Contacto', 'Giro', 'Consultor asignado', 'Cumplimiento', 'Acciones'].map(h => (
-                                                <th key={h} className="text-left text-xs font-semibold text-gray-500 px-5 py-3">{h}</th>
+                                        <tr className="bg-yellow-300 border-b-4 border-black">
+                                            {['Empresa', 'Contacto', 'Giro', 'Consultor Asignado', 'ISO', 'Acciones'].map(h => (
+                                                <th key={h} className="p-4 font-black uppercase text-sm border-r-4 border-black last:border-0">{h}</th>
                                             ))}
                                         </tr>
                                     </thead>
-                                    <tbody>
+                                    <tbody className="divide-y-4 divide-black">
                                         {clientes.map(u => {
                                             const proj = getProyectoByCliente(u.id);
                                             const pct = proj ? getPct(proj) : null;
                                             const gc = giroColor(u.giro);
                                             return (
-                                                <tr key={u.id} className="border-t border-gray-50 hover:bg-gray-50 transition-colors">
-                                                    <td className="px-5 py-3.5">
+                                                <tr key={u.id} className="hover:bg-gray-50 transition-colors">
+                                                    <td className="p-4 border-r-4 border-black">
                                                         <div className="flex items-center gap-3">
-                                                            <div className="w-8 h-8 rounded-lg flex items-center justify-center text-white text-xs font-bold flex-shrink-0" style={{ background: gc }}>
+                                                            <div className="w-10 h-10 border-2 border-black flex items-center justify-center font-black text-sm" style={{ background: gc }}>
                                                                 {u.empresa.slice(0, 2).toUpperCase()}
                                                             </div>
                                                             <div>
-                                                                <p className="font-semibold text-gray-900 text-sm">{u.empresa}</p>
-                                                                <p className="text-xs text-gray-400">{u.email}</p>
+                                                                <p className="font-black uppercase text-black">{u.empresa}</p>
+                                                                <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">{u.email}</p>
                                                             </div>
                                                         </div>
                                                     </td>
-                                                    <td className="px-5 py-3.5 text-sm text-gray-700">{u.nombre}</td>
-                                                    <td className="px-5 py-3.5">
-                                                        <span className="text-xs px-2 py-1 rounded-full font-medium" style={{ background: gc + '22', color: gc }}>
+                                                    <td className="p-4 border-r-4 border-black font-bold uppercase text-sm">{u.nombre}</td>
+                                                    <td className="p-4 border-r-4 border-black">
+                                                        <span className="text-[10px] font-black uppercase px-2 py-1 border-2 border-black whitespace-nowrap" style={{ background: gc }}>
                                                             {giroLabel(u.giro)}
                                                         </span>
                                                     </td>
-                                                    <td className="px-5 py-3.5">
+                                                    <td className="p-4 border-r-4 border-black">
                                                         {proj ? (
                                                             <select
                                                                 value={proj.consultor_id || ''}
                                                                 onChange={e => assignConsultor(proj.id, e.target.value)}
                                                                 disabled={isProcessing}
-                                                                className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-green-700 bg-white">
-                                                                <option value="">Sin asignar</option>
+                                                                className="w-full text-xs font-bold uppercase border-2 border-black p-2 bg-white outline-none focus:bg-yellow-100 cursor-pointer"
+                                                            >
+                                                                <option value="">-- Sin Asignar --</option>
                                                                 {consultores.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
                                                             </select>
-                                                        ) : <span className="text-xs text-gray-400">Sin proyecto</span>}
+                                                        ) : <span className="text-xs font-bold text-red-500 uppercase">Sin proyecto</span>}
                                                     </td>
-                                                    <td className="px-5 py-3.5">
-                                                        {pct !== null ? (
-                                                            <div className="flex items-center gap-2">
-                                                                <div className="w-20 h-1.5 rounded-full bg-gray-100 overflow-hidden">
-                                                                    <div className="h-full rounded-full" style={{ width: `${pct}%`, background: pct === 100 ? '#10B981' : pct > 50 ? '#3B82F6' : '#F59E0B' }} />
-                                                                </div>
-                                                                <span className="text-xs font-medium text-gray-600">{pct}%</span>
-                                                            </div>
-                                                        ) : <span className="text-xs text-gray-400">{proj ? 'Sin trámites' : '---'}</span>}
+                                                    <td className="p-4 border-r-4 border-black text-center font-black text-lg">
+                                                        {pct !== null ? `${pct}%` : '---'}
                                                     </td>
-                                                    <td className="px-5 py-3.5">
-                                                        <div className="flex items-center gap-1">
-                                                            {proj && <button onClick={() => onEnterProject(proj.id)} className="p-1.5 hover:bg-green-50 rounded-lg text-green-700 text-xs font-medium flex items-center gap-1 transition-colors" title="Ver proyecto">
-                                                                <Ic n="eye" s={14} c="#166534" />
-                                                            </button>}
-                                                            <button onClick={() => setConfirmDel({ type: 'cliente', id: u.id, name: u.empresa })} className="p-1.5 hover:bg-red-50 rounded-lg transition-colors" title="Eliminar">
-                                                                <Ic n="trash" s={14} c="#DC2626" />
+                                                    <td className="p-4">
+                                                        <div className="flex gap-2">
+                                                            {proj && (
+                                                                <button onClick={() => onEnterProject(proj.id)} className="w-8 h-8 bg-blue-300 border-2 border-black flex items-center justify-center hover:bg-blue-400 transition-colors shadow-[2px_2px_0px_rgba(0,0,0,1)] hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-none" title="Entrar">
+                                                                    <Ic n="eye" s={14} />
+                                                                </button>
+                                                            )}
+                                                            <button onClick={() => setConfirmDel({ type: 'cliente', id: u.id, name: u.empresa })} className="w-8 h-8 bg-white hover:bg-red-500 hover:text-white border-2 border-black flex items-center justify-center transition-colors shadow-[2px_2px_0px_rgba(0,0,0,1)] hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-none" title="Eliminar">
+                                                                <Ic n="trash" s={14} />
                                                             </button>
                                                         </div>
                                                     </td>
@@ -382,137 +402,78 @@ export function AdminHome({ data, refreshData, currentUser, onEnterProject, onLo
 
                 {/* ── CONSULTORES TAB ── */}
                 {tab === 'consultores' && (
-                    <div>
-                        <div className="flex items-center justify-between mb-4">
-                            <h2 className="text-lg font-bold text-gray-900">Consultores registrados</h2>
+                    <div className="fade-in">
+                        <div className="flex items-center justify-between mb-6 border-b-4 border-black pb-4">
+                            <h2 className="text-4xl font-black text-black uppercase tracking-tighter">Equipo de Consultores</h2>
                             <Btn onClick={() => { setShowNewConsultor(true); setTempCreds(null); setFormErr(''); }}>
-                                <Ic n="plus" s={14} />Nuevo consultor
+                                <Ic n="plus" s={16} /> Nuevo Consultor
                             </Btn>
                         </div>
 
                         {consultores.length === 0 ? (
-                            <div className="flex flex-col items-center justify-center py-20">
-                                <div className="w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center mb-4">
-                                    <Ic n="users" s={28} c="#1e40af" />
-                                </div>
-                                <p className="text-lg font-semibold text-gray-600">Sin consultores registrados</p>
-                                <p className="text-sm text-gray-400 mt-1">Agrega consultores para poder asignarles clientes</p>
-                                <Btn className="mt-4" onClick={() => setShowNewConsultor(true)}><Ic n="plus" s={14} />Agregar consultor</Btn>
+                            <div className="flex flex-col items-center justify-center py-20 border-4 border-dashed border-gray-300 bg-gray-50">
+                                <Ic n="users" s={48} c="#9CA3AF" />
+                                <p className="text-black font-black uppercase tracking-widest text-xl mt-4">Sin consultores</p>
                             </div>
                         ) : (
-                            <div className="space-y-3 mb-8">
+                            <div className="space-y-4">
                                 {consultores.map(c => {
-                                    const misProyectos = data.proyectos.filter(p => p.consultor_id === c.id);
-                                    const tramActive = misProyectos.reduce((a, p) => a + (p.tramites || []).filter(t => ['recopilando', 'ingresado', 'en_revision'].includes(t.estado)).length, 0);
-                                    const instrPend = misProyectos.reduce((a, p) => a + (p.instrucciones_admin || []).filter(i => !i.leido).length, 0);
+                                    const misProyectos = proyectos.filter(p => p.consultor_id === c.id);
                                     const isOpen = expandedConsultor === c.id;
 
                                     return (
-                                        <div key={c.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                                            <div className="flex items-center gap-4 px-5 py-4 cursor-pointer hover:bg-gray-50 transition-colors" onClick={() => setExpandedConsultor(isOpen ? null : c.id)}>
-                                                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
+                                        <div key={c.id} className="bg-white border-4 border-black shadow-[6px_6px_0px_rgba(0,0,0,1)] transition-all">
+                                            {/* Cabecera del Consultor */}
+                                            <div className="flex items-center gap-4 p-4 cursor-pointer hover:bg-yellow-50" onClick={() => setExpandedConsultor(isOpen ? null : c.id)}>
+                                                <div className="w-12 h-12 border-4 border-black bg-blue-300 flex items-center justify-center font-black text-xl">
                                                     {c.nombre.charAt(0).toUpperCase()}
                                                 </div>
-                                                <div className="flex-1 min-w-0">
-                                                    <p className="font-semibold text-gray-900">{c.nombre}</p>
-                                                    <p className="text-xs text-gray-400">{c.email}</p>
+                                                <div className="flex-1">
+                                                    <p className="font-black uppercase text-lg leading-tight">{c.nombre}</p>
+                                                    <p className="text-xs font-bold text-gray-500 tracking-widest">{c.email}</p>
                                                 </div>
-                                                <div className="flex items-center gap-3">
-                                                    <span className="inline-flex items-center gap-1 bg-green-100 text-green-800 text-xs font-semibold px-2.5 py-1 rounded-full">
-                                                        <Ic n="users" s={11} c="#166534" />{misProyectos.length} clientes
+                                                <div className="flex items-center gap-4">
+                                                    <span className="text-xs font-black uppercase border-2 border-black px-2 py-1 bg-emerald-200">
+                                                        {misProyectos.length} Clientes
                                                     </span>
-                                                    <span className="inline-flex items-center gap-1 bg-blue-100 text-blue-800 text-xs font-semibold px-2.5 py-1 rounded-full">
-                                                        <Ic n="file" s={11} c="#1e40af" />{tramActive} activos
-                                                    </span>
-                                                    {instrPend > 0 && (
-                                                        <span className="inline-flex items-center gap-1 bg-amber-100 text-amber-800 text-xs font-semibold px-2.5 py-1 rounded-full">
-                                                            <Ic n="bell" s={11} c="#92400e" />{instrPend} instruc.
-                                                        </span>
-                                                    )}
-                                                    <button
-                                                        onClick={e => {
-                                                            e.stopPropagation();
-                                                            setShowMeeting({ consultorId: c.id, email: c.email, proyId: misProyectos[0]?.id || null });
-                                                            setMeetLink('');
-                                                            setMeetForm({ titulo: `Reunión con ${c.nombre}`, fecha: '', hora: '10:00', duracion: '60', agenda: '', correo_extra: '' });
-                                                        }}
-                                                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition-colors"
-                                                        style={{ background: 'linear-gradient(135deg,#1e40af,#3b82f6)' }}
-                                                        title="Agendar reunión">
-                                                        <Ic n="calendar" s={13} c="white" />Reunión
+                                                    <button onClick={e => { e.stopPropagation(); setConfirmDel({ type: 'consultor', id: c.id, name: c.nombre }); }} className="w-8 h-8 bg-white hover:bg-red-500 hover:text-white border-2 border-black flex items-center justify-center transition-colors">
+                                                        <Ic n="trash" s={14} />
                                                     </button>
-                                                    <button onClick={e => { e.stopPropagation(); setConfirmDel({ type: 'consultor', id: c.id, name: c.nombre }); }} className="p-1.5 hover:bg-red-50 rounded-lg transition-colors">
-                                                        <Ic n="trash" s={14} c="#DC2626" />
-                                                    </button>
-                                                    <Ic n={isOpen ? 'cd' : 'cr'} s={16} c="#9ca3af" />
+                                                    <Ic n={isOpen ? 'cd' : 'cr'} s={20} strokeWidth="3" />
                                                 </div>
                                             </div>
 
+                                            {/* Panel Expandido (Clientes asignados) */}
                                             {isOpen && (
-                                                <div className="expand-panel border-t border-gray-100">
+                                                <div className="border-t-4 border-black bg-gray-50 p-4">
                                                     {misProyectos.length === 0 ? (
-                                                        <div className="px-6 py-8 text-center text-sm text-gray-400">Sin clientes asignados aún.</div>
+                                                        <p className="text-sm font-bold uppercase text-gray-500 text-center py-4">Sin clientes asignados.</p>
                                                     ) : (
-                                                        misProyectos.map(proj => {
-                                                            const cliUser = data.usuarios.find(u => u.id === proj.cliente_id);
-                                                            if (!cliUser) return null;
-                                                            const gc = giroColor(cliUser.giro);
-                                                            const tramites = proj.tramites || [];
-                                                            const instrCount = (proj.instrucciones_admin || []).length;
-                                                            const reunCount = (proj.reuniones || []).length;
-
-                                                            return (
-                                                                <div key={proj.id} className="border-b border-gray-50 last:border-0">
-                                                                    <div className="flex items-center justify-between px-6 py-3" style={{ background: '#fafbff' }}>
+                                                        <div className="space-y-2">
+                                                            {misProyectos.map(proj => {
+                                                                const cliUser = usuarios.find(u => u.id === proj.cliente_id);
+                                                                if (!cliUser) return null;
+                                                                return (
+                                                                    <div key={proj.id} className="flex items-center justify-between p-3 border-2 border-black bg-white">
                                                                         <div className="flex items-center gap-3">
-                                                                            <div className="w-7 h-7 rounded-lg flex items-center justify-center text-white text-xs font-bold" style={{ background: gc }}>
-                                                                                {cliUser.empresa.slice(0, 2).toUpperCase()}
-                                                                            </div>
-                                                                            <div>
-                                                                                <p className="font-semibold text-gray-800 text-sm">{cliUser.empresa}</p>
-                                                                                <p className="text-[10px] text-gray-400">{giroLabel(cliUser.giro)} · {cliUser.email}</p>
-                                                                            </div>
+                                                                            <span className="w-3 h-3 border-2 border-black" style={{ background: giroColor(cliUser.giro) }} />
+                                                                            <p className="font-black uppercase text-sm">{cliUser.empresa}</p>
                                                                         </div>
-                                                                        <div className="flex items-center gap-2">
-                                                                            {instrCount > 0 && <span className="text-[10px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full font-medium">{instrCount} instruc.</span>}
-                                                                            {reunCount > 0 && <span className="text-[10px] bg-purple-50 text-purple-700 px-2 py-0.5 rounded-full font-medium">{reunCount} reunión(es)</span>}
-                                                                            <button onClick={() => { setShowInstr({ proyId: proj.id, empresa: cliUser.empresa }); setInstrForm({ texto: '', urgente: false }); }}
-                                                                                className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-green-50 text-green-700 hover:bg-green-100 transition-colors">
-                                                                                <Ic n="send" s={11} c="#166534" />Instrucción
+                                                                        <div className="flex gap-2">
+                                                                            <button onClick={() => { setShowInstr({ proyId: proj.id, empresa: cliUser.empresa }); setInstrForm({ texto: '', urgente: false }); }} className="bg-emerald-300 hover:bg-emerald-400 text-black border-2 border-black px-3 py-1 font-black uppercase text-[10px] flex items-center gap-1">
+                                                                                <Ic n="send" s={12} /> Instrucción
                                                                             </button>
-                                                                            <button onClick={() => onEnterProject(proj.id)} className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors">
-                                                                                <Ic n="eye" s={11} c="#6b7280" />Ver proyecto
+                                                                            <button onClick={() => { setShowMeeting({ consultorId: c.id, email: c.email, proyId: proj.id }); setMeetLink(''); setMeetForm({ titulo: `Reunión con ${c.nombre}`, fecha: '', hora: '10:00', duracion: '60', agenda: '', correo_extra: '' }); }} className="bg-blue-300 hover:bg-blue-400 text-black border-2 border-black px-3 py-1 font-black uppercase text-[10px] flex items-center gap-1">
+                                                                                <Ic n="calendar" s={12} /> Reunión
+                                                                            </button>
+                                                                            <button onClick={() => onEnterProject(proj.id)} className="bg-gray-200 hover:bg-gray-300 text-black border-2 border-black px-3 py-1 font-black uppercase text-[10px] flex items-center gap-1">
+                                                                                Entrar <Ic n="cr" s={12} />
                                                                             </button>
                                                                         </div>
                                                                     </div>
-                                                                    {tramites.length === 0 ? (
-                                                                        <div className="px-6 py-3 text-xs text-gray-400 italic">Sin trámites generados - diagnóstico pendiente.</div>
-                                                                    ) : (
-                                                                        <div className="px-6 pb-3">
-                                                                            <div className="rounded-xl overflow-hidden border border-gray-100 mt-2">
-                                                                                {tramites.map((t, ti) => {
-                                                                                    const [eLabel, eColor] = TRAM_ESTADO[t.estado] || ['---', '#9CA3AF'];
-                                                                                    const daysLeft = t.fecha_limite ? Math.round((new Date(t.fecha_limite) - new Date()) / 864e5) : null;
-                                                                                    return (
-                                                                                        <div key={t._id || ti} className="tram-row flex items-center gap-4 px-4 py-2.5">
-                                                                                            <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: eColor }} />
-                                                                                            <p className="text-xs font-medium text-gray-800 flex-1 truncate">{t.nombre}</p>
-                                                                                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0" style={{ background: eColor + '22', color: eColor }}>{eLabel}</span>
-                                                                                            {daysLeft !== null && t.estado !== 'cumplido' && t.estado !== 'no_aplica' && (
-                                                                                                <span className={`text-[10px] flex-shrink-0 font-medium ${daysLeft < 0 ? 'text-red-500' : daysLeft < 8 ? 'text-amber-500' : 'text-gray-400'}`}>
-                                                                                                    {daysLeft < 0 ? `Vencido (${Math.abs(daysLeft)}d)` : daysLeft === 0 ? 'Hoy' : `${daysLeft}d`}
-                                                                                                </span>
-                                                                                            )}
-                                                                                            {t.fecha_limite && <span className="text-[10px] text-gray-300 flex-shrink-0">{fmtDate(t.fecha_limite)}</span>}
-                                                                                        </div>
-                                                                                    );
-                                                                                })}
-                                                                            </div>
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                            );
-                                                        })
+                                                                );
+                                                            })}
+                                                        </div>
                                                     )}
                                                 </div>
                                             )}
@@ -525,182 +486,119 @@ export function AdminHome({ data, refreshData, currentUser, onEnterProject, onLo
                 )}
             </div>
 
-            {/* ── NEW CLIENT MODAL ── */}
-            <Modal open={showNewClient} onClose={() => setShowNewClient(false)} title="Registrar nuevo cliente" width="max-w-xl">
+            {/* ── MODALES ── */}
+            <Modal open={showNewClient} onClose={() => setShowNewClient(false)} title="NUEVO CLIENTE" width="max-w-xl">
                 {tempCreds && tempCreds.tipo === 'cliente' ? (
-                    <div className="text-center py-4">
-                        <div className="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-3">
-                            <Ic n="checkCircle" s={28} c="#166534" />
+                    <div className="text-center py-6">
+                        <div className="w-20 h-20 bg-emerald-400 border-4 border-black flex items-center justify-center mx-auto mb-6 rotate-3">
+                            <Ic n="checkCircle" s={36} strokeWidth="3" />
                         </div>
-                        <h3 className="font-semibold text-gray-900 mb-1">Cliente creado exitosamente</h3>
-                        <p className="text-sm text-gray-500 mb-4">Comparte estas credenciales con el cliente:</p>
-                        <div className="bg-gray-50 rounded-xl p-4 text-left mb-4">
-                            <p className="text-xs text-gray-500 mb-1">Correo electrónico</p>
-                            <p className="font-medium text-gray-800 text-sm mb-3">{tempCreds.email}</p>
-                            <p className="text-xs text-gray-500 mb-1">Contraseña temporal</p>
-                            <p className="font-mono font-bold text-green-800 text-xl">{tempCreds.pwd}</p>
+                        <h3 className="font-black text-2xl uppercase mb-2">Cliente Creado</h3>
+                        <div className="bg-yellow-100 border-4 border-black p-6 text-left mb-6">
+                            <p className="text-xs font-black uppercase">Email</p>
+                            <p className="font-black text-lg mb-4">{tempCreds.email}</p>
+                            <p className="text-xs font-black uppercase">Contraseña Temporal</p>
+                            <p className="font-mono font-black text-red-600 text-2xl bg-white border-2 border-black px-2 py-1 inline-block">{tempCreds.pwd}</p>
                         </div>
                         <Btn onClick={() => { setShowNewClient(false); setTempCreds(null); }}>Cerrar</Btn>
                     </div>
                 ) : (
-                    <div className="space-y-3">
-                        {formErr && <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-600">{formErr}</div>}
-                        <div className="grid grid-cols-2 gap-3">
-                            <Input label="Nombre del responsable" value={clientForm.nombre} onChange={v => setC('nombre', v)} placeholder="Juan García" required />
-                            <Input label="Empresa / Razón social" value={clientForm.empresa} onChange={v => setC('empresa', v)} placeholder="ACME S.A." required />
+                    <div className="space-y-4">
+                        {formErr && <div className="p-3 bg-red-400 border-4 border-black font-black uppercase text-sm">{formErr}</div>}
+                        <div className="grid grid-cols-2 gap-4">
+                            <Input label="Responsable" value={clientForm.nombre} onChange={v => setC('nombre', v)} placeholder="Nombre..." required />
+                            <Input label="Empresa" value={clientForm.empresa} onChange={v => setC('empresa', v)} placeholder="ACME S.A." required />
                         </div>
                         <Select label="Giro industrial" value={clientForm.giro} onChange={v => setC('giro', v)} options={GIROS.map(g => ({ value: g.id, label: g.label }))} required />
-                        <Input label="Correo electrónico" value={clientForm.email} onChange={v => setC('email', v)} type="email" placeholder="cliente@empresa.com" required />
-                        <Input label="Contraseña (dejar vacío = auto-generada)" value={clientForm.pwd} onChange={v => setC('pwd', v)} type="password" placeholder="Opcional - mínimo 6 caracteres" />
-                        <div className="flex flex-col gap-1">
-                            <label className="text-xs font-medium text-gray-600">Asignar consultor</label>
-                            <select value={clientForm.consultor_id} onChange={e => setC('consultor_id', e.target.value)} disabled={isProcessing} className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-700 bg-white">
-                                <option value="">Sin asignar (asignar después)</option>
-                                {consultores.map(c => <option key={c.id} value={c.id}>{c.nombre} - {c.email}</option>)}
-                            </select>
-                        </div>
-                        <div className="flex flex-col gap-1">
-                            <label className="text-xs font-medium text-gray-600">Notas del proyecto</label>
-                            <textarea value={clientForm.notas} onChange={e => setC('notas', e.target.value)} rows={2} placeholder="Notas internas..." className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-700 resize-none" />
-                        </div>
-                        <div className="flex justify-end gap-2 pt-2">
+                        <Input label="Correo" value={clientForm.email} onChange={v => setC('email', v)} type="email" required />
+                        <Input label="Contraseña (vacío = autogenerar)" value={clientForm.pwd} onChange={v => setC('pwd', v)} type="password" />
+                        <Select label="Asignar consultor" value={clientForm.consultor_id} onChange={v => setC('consultor_id', v)} options={consultores.map(c => ({ value: c.id, label: c.nombre }))} />
+                        <div className="flex justify-end gap-2 pt-4 mt-6 border-t-4 border-black">
                             <Btn variant="secondary" onClick={() => setShowNewClient(false)}>Cancelar</Btn>
-                            <Btn onClick={createClient} disabled={isProcessing}><Ic n="plus" s={14} />{isProcessing ? 'Creando...' : 'Crear cliente'}</Btn>
+                            <Btn onClick={createClient} disabled={isProcessing}>{isProcessing ? 'Guardando...' : 'Confirmar'}</Btn>
                         </div>
                     </div>
                 )}
             </Modal>
 
-            {/* ── NEW CONSULTOR MODAL ── */}
-            <Modal open={showNewConsultor} onClose={() => setShowNewConsultor(false)} title="Registrar nuevo consultor" width="max-w-md">
+            <Modal open={showNewConsultor} onClose={() => setShowNewConsultor(false)} title="NUEVO CONSULTOR" width="max-w-md">
                 {tempCreds && tempCreds.tipo === 'consultor' ? (
-                    <div className="text-center py-4">
-                        <div className="w-14 h-14 rounded-full bg-blue-100 flex items-center justify-center mx-auto mb-3">
-                            <Ic n="checkCircle" s={28} c="#1e40af" />
+                    <div className="text-center py-6">
+                        <div className="w-20 h-20 bg-blue-400 border-4 border-black flex items-center justify-center mx-auto mb-6">
+                            <Ic n="checkCircle" s={36} strokeWidth="3" />
                         </div>
-                        <h3 className="font-semibold text-gray-900 mb-1">Consultor creado exitosamente</h3>
-                        <p className="text-sm text-gray-500 mb-4">Credenciales de acceso:</p>
-                        <div className="bg-gray-50 rounded-xl p-4 text-left mb-4">
-                            <p className="text-xs text-gray-500 mb-1">Correo electrónico</p>
-                            <p className="font-medium text-gray-800 text-sm mb-3">{tempCreds.email}</p>
-                            <p className="text-xs text-gray-500 mb-1">Contraseña</p>
-                            <p className="font-mono font-bold text-blue-800 text-xl">{tempCreds.pwd}</p>
+                        <h3 className="font-black text-2xl uppercase mb-4">Consultor Listo</h3>
+                        <div className="bg-yellow-100 border-4 border-black p-4 text-left mb-6">
+                            <p className="font-black">{tempCreds.email}</p>
+                            <p className="font-mono text-red-600 font-black text-xl">{tempCreds.pwd}</p>
                         </div>
                         <Btn onClick={() => { setShowNewConsultor(false); setTempCreds(null); }}>Cerrar</Btn>
                     </div>
                 ) : (
-                    <div className="space-y-3">
-                        {formErr && <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-600">{formErr}</div>}
-                        <Input label="Nombre completo" value={consultorForm.nombre} onChange={v => setCo('nombre', v)} placeholder="Lic. Ana Martínez" required />
-                        <Input label="Correo electrónico" value={consultorForm.email} onChange={v => setCo('email', v)} type="email" placeholder="consultor@bioimpact.com.mx" required />
-                        <Input label="Contraseña" value={consultorForm.pwd} onChange={v => setCo('pwd', v)} type="password" placeholder="Mínimo 6 caracteres" required />
-                        <div className="flex justify-end gap-2 pt-2">
+                    <div className="space-y-4">
+                        {formErr && <div className="p-3 bg-red-400 border-4 border-black font-black uppercase text-sm">{formErr}</div>}
+                        <Input label="Nombre" value={consultorForm.nombre} onChange={v => setCo('nombre', v)} required />
+                        <Input label="Correo" value={consultorForm.email} onChange={v => setCo('email', v)} type="email" required />
+                        <Input label="Contraseña" value={consultorForm.pwd} onChange={v => setCo('pwd', v)} type="password" required />
+                        <div className="flex justify-end gap-2 mt-6">
                             <Btn variant="secondary" onClick={() => setShowNewConsultor(false)}>Cancelar</Btn>
-                            <Btn onClick={createConsultor} disabled={isProcessing}><Ic n="plus" s={14} />{isProcessing ? 'Creando...' : 'Crear consultor'}</Btn>
+                            <Btn onClick={createConsultor} disabled={isProcessing}>{isProcessing ? 'Creando...' : 'Crear'}</Btn>
                         </div>
                     </div>
                 )}
             </Modal>
 
-            {/* ── CONFIRM DELETE ── */}
-            <Modal open={!!confirmDel} onClose={() => setConfirmDel(null)} title="Confirmar eliminación" width="max-w-sm">
-                <div className="text-center py-2">
-                    <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-3">
-                        <Ic n="trash" s={22} c="#DC2626" />
+            <Modal open={!!confirmDel} onClose={() => setConfirmDel(null)} title="¡ADVERTENCIA!" width="max-w-sm">
+                <div className="text-center py-4">
+                    <div className="w-20 h-20 bg-red-500 border-4 border-black flex items-center justify-center mx-auto mb-4">
+                        <Ic n="trash" s={36} c="#000" strokeWidth="3" />
                     </div>
-                    <p className="text-sm text-gray-600 mb-1">¿Eliminar <strong>{confirmDel?.name}</strong>?</p>
-                    <p className="text-xs text-gray-400 mb-4">{confirmDel?.type === 'cliente' ? 'Se eliminarán todos los datos del proyecto. Esta acción no se puede deshacer.' : 'El consultor perderá acceso. Sus clientes quedarán sin consultor asignado.'}</p>
-                    <div className="flex gap-2 justify-center">
+                    <p className="text-lg font-black uppercase mb-6 leading-tight">¿Eliminar {confirmDel?.name}?</p>
+                    <div className="flex gap-4 justify-center">
                         <Btn variant="secondary" onClick={() => setConfirmDel(null)}>Cancelar</Btn>
-                        <Btn variant="danger" onClick={() => deleteEntry(confirmDel.type, confirmDel.id)} disabled={isProcessing}>{isProcessing ? 'Eliminando...' : 'Eliminar'}</Btn>
+                        <Btn variant="danger" onClick={() => deleteEntry(confirmDel.type, confirmDel.id)} disabled={isProcessing}>Eliminar</Btn>
                     </div>
                 </div>
             </Modal>
 
-            {/* ── MEETING SCHEDULER MODAL ── */}
-            <Modal open={!!showMeeting} onClose={() => { setShowMeeting(null); setMeetLink(''); }} title="Agendar reunión de seguimiento" width="max-w-lg">
+            <Modal open={!!showInstr} onClose={() => setShowInstr(null)} title="ENVIAR INSTRUCCIÓN" width="max-w-md">
+                <div className="space-y-6">
+                    <div>
+                        <label className="text-xs font-black uppercase text-black block mb-2">Mensaje *</label>
+                        <textarea value={instrForm.texto} onChange={e => setInstrForm(f => ({ ...f, texto: e.target.value }))} rows={4} className="w-full border-4 border-black px-4 py-3 font-bold text-sm focus:outline-none focus:bg-yellow-100 resize-none" />
+                    </div>
+                    <label className={`flex items-center gap-4 p-4 border-4 cursor-pointer transition-colors ${instrForm.urgente ? 'border-red-600 bg-red-100' : 'border-black bg-white hover:bg-gray-100'}`}>
+                        <input type="checkbox" checked={instrForm.urgente} onChange={e => setInstrForm(f => ({ ...f, urgente: e.target.checked }))} className="w-6 h-6" />
+                        <span className="font-black uppercase text-lg">MARCAR COMO URGENTE</span>
+                    </label>
+                    <Btn onClick={saveInstr} disabled={isProcessing} className="w-full">Enviar Instrucción</Btn>
+                </div>
+            </Modal>
+
+            <Modal open={!!showMeeting} onClose={() => { setShowMeeting(null); setMeetLink(''); }} title="AGENDAR REUNIÓN" width="max-w-lg">
                 {meetLink ? (
-                    <div className="py-2">
-                        <div className="flex items-center justify-center mb-4">
-                            <div className="w-14 h-14 rounded-full flex items-center justify-center" style={{ background: 'linear-gradient(135deg,#1e40af,#3b82f6)' }}>
-                                <Ic n="checkCircle" s={28} c="white" />
-                            </div>
-                        </div>
-                        <p className="text-center font-semibold text-gray-900 mb-1">Reunión guardada en el proyecto</p>
-                        <p className="text-center text-sm text-gray-500 mb-5">Haz clic en el botón para abrirla en Google Calendar y guardarla en tu agenda (el consultor también recibirá la invitación si tiene cuenta Google).</p>
-                        <a href={meetLink} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-2 w-full py-3 rounded-xl font-bold text-white mb-3 transition-opacity hover:opacity-90" style={{ background: 'linear-gradient(135deg,#1e40af,#4f46e5)' }}>
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z" /></svg>
-                            Abrir en Google Calendar →
+                    <div className="text-center py-6">
+                        <a href={meetLink} target="_blank" rel="noopener noreferrer" className="inline-flex bg-blue-600 text-white border-4 border-black px-8 py-4 font-black uppercase hover:bg-blue-700 shadow-[6px_6px_0px_rgba(0,0,0,1)] hover:translate-x-1 hover:translate-y-1 hover:shadow-none transition-all mb-4">
+                            ABRIR GOOGLE CALENDAR →
                         </a>
-                        <p className="text-center text-xs text-gray-400 mb-4">El link abre Google Calendar con todos los datos pre-llenados. Solo haz clic en "Guardar" dentro de Google Calendar para confirmar el evento.</p>
-                        <Btn variant="secondary" onClick={() => { setShowMeeting(null); setMeetLink(''); }}>Cerrar</Btn>
+                        <p className="text-xs font-bold uppercase text-gray-500 mt-4">Haz clic en Guardar en Google Calendar para confirmar.</p>
+                        <div className="mt-8 border-t-4 border-black pt-6">
+                            <Btn onClick={() => { setShowMeeting(null); setMeetLink(''); }} variant="secondary">Cerrar</Btn>
+                        </div>
                     </div>
                 ) : (
                     <div className="space-y-4">
-                        <div className="p-3 rounded-xl text-xs text-blue-700 flex items-start gap-2" style={{ background: '#eff6ff', border: '1px solid #bfdbfe' }}>
-                            <Ic n="info" s={14} c="#1d4ed8" />
-                            <span>Se generará un link de Google Calendar con todos los datos pre-llenados. Podrás invitar al consultor directamente desde Google Calendar.</span>
+                        <Input label="Título" value={meetForm.titulo} onChange={v => setMeetForm(f => ({ ...f, titulo: v }))} required />
+                        <div className="grid grid-cols-2 gap-4">
+                            <Input label="Fecha *" value={meetForm.fecha} onChange={v => setMeetForm(f => ({ ...f, fecha: v }))} type="date" required />
+                            <Input label="Hora" value={meetForm.hora} onChange={v => setMeetForm(f => ({ ...f, hora: v }))} type="time" />
                         </div>
-                        <Input label="Título de la reunión *" value={meetForm.titulo} onChange={v => setMeetForm(f => ({ ...f, titulo: v }))} placeholder="Reunión de seguimiento ambiental" />
-                        <div className="grid grid-cols-3 gap-3">
-                            <div className="col-span-1">
-                                <Input label="Fecha *" value={meetForm.fecha} onChange={v => setMeetForm(f => ({ ...f, fecha: v }))} type="date" />
-                            </div>
-                            <div>
-                                <Input label="Hora inicio" value={meetForm.hora} onChange={v => setMeetForm(f => ({ ...f, hora: v }))} type="time" />
-                            </div>
-                            <div className="flex flex-col gap-1">
-                                <label className="text-xs font-medium text-gray-600">Duración</label>
-                                <select value={meetForm.duracion} onChange={e => setMeetForm(f => ({ ...f, duracion: e.target.value }))} className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-700 bg-white h-[38px]">
-                                    <option value="30">30 min</option>
-                                    <option value="60">1 hora</option>
-                                    <option value="90">1.5 horas</option>
-                                    <option value="120">2 horas</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div className="flex flex-col gap-1">
-                            <label className="text-xs font-medium text-gray-600">Agenda / descripción</label>
-                            <textarea value={meetForm.agenda} onChange={e => setMeetForm(f => ({ ...f, agenda: e.target.value }))} rows={3} placeholder="Revisión de avances, pendientes de documentación, ajustes al cronograma..." className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-700 resize-none" />
-                        </div>
-                        <div className="p-3 rounded-xl bg-gray-50 border border-gray-100">
-                            <p className="text-xs text-gray-500 mb-1">Consultor que recibirá la invitación:</p>
-                            <p className="text-sm font-medium text-gray-800">{showMeeting?.email}</p>
-                        </div>
-                        <div className="flex justify-end gap-2 pt-1">
-                            <Btn variant="secondary" onClick={() => setShowMeeting(null)}>Cancelar</Btn>
-                            <Btn onClick={saveMeeting} disabled={isProcessing} style={{ background: 'linear-gradient(135deg,#1e40af,#3b82f6)' }}>
-                                <Ic n="calendar" s={14} />{isProcessing ? 'Guardando...' : 'Generar link Google Calendar'}
-                            </Btn>
-                        </div>
+                        <Select label="Duración (Min)" value={meetForm.duracion} onChange={v => setMeetForm(f => ({ ...f, duracion: v }))} options={[{ value: '30', label: '30' }, { value: '60', label: '60' }, { value: '90', label: '90' }]} />
+                        <Btn onClick={saveMeeting} disabled={isProcessing} className="w-full mt-4">Generar Link</Btn>
                     </div>
                 )}
             </Modal>
 
-            {/* ── INSTRUCTIONS MODAL ── */}
-            <Modal open={!!showInstr} onClose={() => setShowInstr(null)} title={`Instrucción para ${showInstr?.empresa || 'consultor'}`} width="max-w-md">
-                <div className="space-y-4">
-                    <div className="p-3 rounded-xl text-xs flex items-start gap-2" style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#166534' }}>
-                        <Ic n="info" s={14} c="#166534" />
-                        <span>La instrucción quedará guardada en el proyecto y el consultor la verá en su Panel Consultor al entrar al proyecto.</span>
-                    </div>
-                    <div className="flex flex-col gap-1">
-                        <label className="text-xs font-medium text-gray-600">Instrucción / comentario *</label>
-                        <textarea value={instrForm.texto} onChange={e => setInstrForm(f => ({ ...f, texto: e.target.value }))} rows={4} placeholder="Ej: Priorizar la gestión de la Cédula de Operación Anual antes del 30 de abril. Solicitar al cliente el inventario de residuos peligrosos actualizado..." className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-700 resize-none" />
-                    </div>
-                    <label className="flex items-center gap-3 cursor-pointer p-3 rounded-xl border transition-colors" style={{ background: instrForm.urgente ? '#fef2f2' : '#f9fafb', borderColor: instrForm.urgente ? '#fecaca' : '#e5e7eb' }}>
-                        <input type="checkbox" checked={instrForm.urgente} onChange={e => setInstrForm(f => ({ ...f, urgente: e.target.checked }))} className="w-4 h-4 rounded accent-red-500" />
-                        <div>
-                            <p className="text-sm font-semibold" style={{ color: instrForm.urgente ? '#dc2626' : '#374151' }}>Marcar como urgente</p>
-                            <p className="text-xs text-gray-400">Aparecerá destacada en rojo en el panel del consultor</p>
-                        </div>
-                    </label>
-                    <div className="flex justify-end gap-2 pt-1">
-                        <Btn variant="secondary" onClick={() => setShowInstr(null)}>Cancelar</Btn>
-                        <Btn onClick={saveInstr} disabled={isProcessing}><Ic n="send" s={14} />{isProcessing ? 'Enviando...' : 'Enviar instrucción'}</Btn>
-                    </div>
-                </div>
-            </Modal>
         </div>
     );
 }

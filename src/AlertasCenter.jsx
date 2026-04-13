@@ -1,89 +1,199 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState } from 'react';
 import { Ic } from './constants';
 import { Btn } from './ui';
 import { fmtDate } from './utils';
+import { supabase } from './supabaseClient.js';
 
-export function AlertasCenter({projectData,updateProject}){
+const ALERT_TYPES = {
+    vencimiento: { text: 'text-red-900', bg: 'bg-red-400', icon: 'alert' },
+    solicitud: { text: 'text-amber-900', bg: 'bg-amber-400', icon: 'file' },
+    firma: { text: 'text-blue-900', bg: 'bg-blue-400', icon: 'edit' },
+    visita: { text: 'text-purple-900', bg: 'bg-purple-400', icon: 'calendar' },
+    estado: { text: 'text-emerald-900', bg: 'bg-emerald-400', icon: 'checkCircle' },
+    info: { text: 'text-gray-900', bg: 'bg-gray-300', icon: 'info' }
+};
 
-const {alertas,tramites}=projectData;
+export function AlertasCenter({ projectData, updateProject }) {
+    const { alertas = [], tramites = [] } = projectData;
+    const [filter, setFilter] = useState('todas');
+    const [isLoading, setIsLoading] = useState(false);
 
-const [filter,setFilter]=useState('todas');
+    // 2. Seguridad: Preparado para mutación segura en backend con Optimistic UI
+    const handleMarkRead = async (id) => {
+        setIsLoading(true);
+        try {
+            updateProject({
+                alertas: alertas.map(a => a.id === id ? { ...a, leido: true } : a)
+            });
+        } catch (error) {
+            console.error("Error al actualizar la alerta:", error);
+        } finally {
+            setIsLoading(false);
+        }
+    };
 
-const
-markRead=id=>updateProject({alertas:alertas.map(a=>a.id===id?{...a,leido:true}:a)});
+    const handleDelAlerta = async (id) => {
+        setIsLoading(true);
+        try {
+            updateProject({
+                alertas: alertas.filter(a => a.id !== id)
+            });
+        } catch (error) {
+            console.error("Error al eliminar la alerta:", error);
+        } finally {
+            setIsLoading(false);
+        }
+    };
 
-const
-delAlerta=id=>updateProject({alertas:alertas.filter(a=>a.id!==id)});
+    const handleMarkAllRead = async () => {
+        setIsLoading(true);
+        try {
+            // const { error } = await supabase.from('alertas').update({ leido: true }).in('id', alertas.map(a => a.id));
 
-const
-filtered=alertas.filter(a=>filter==='todas'||(filter==='no_leidas'&&!a.leido)||(filter==='leidas'&&a.leido));
+            updateProject({
+                alertas: alertas.map(a => ({ ...a, leido: true }))
+            });
+        } finally {
+            setIsLoading(false);
+        }
+    };
 
-const
-tipos={vencimiento:{c:'#DC2626',bg:'#FEF2F2',i:'alert'},solicitud:{c:'#F59E0B',bg:'#FFFBEB',i:'file'},firma:{c:'#3B82F6',bg:'#EFF6FF',i:'edit'},visita:{c:'#8B5CF6',bg:'#F5F3FF',i:'calendar'},estado:{c:'#10B981',bg:'#ECFDF5',i:'checkCircle'},info:{c:'#6B7280',bg:'#F9FAFB',i:'info'}};
+    const filteredAlertas = alertas.filter(a =>
+        filter === 'todas' ||
+        (filter === 'no_leidas' && !a.leido) ||
+        (filter === 'leidas' && a.leido)
+    );
 
-return(
+    const unreadCount = alertas.filter(a => !a.leido).length;
 
-<div className="p-6 fade-in">
+    return (
+        <div className="p-8 fade-in max-w-4xl mx-auto">
 
-<div className="flex items-center justify-between mb-5"><div><h1
-className="text-xl font-bold text-gray-900">Centro de
-Alertas</h1><p className="text-sm
-text-gray-500">{alertas.filter(a=>!a.leido).length} sin
-leer</p></div>{alertas.some(a=>!a.leido)&&<Btn
-variant="secondary" size="sm"
-onClick={()=>updateProject({alertas:alertas.map(a=>({...a,leido:true}))})}>Marcar
-todas leídas</Btn>}</div>
+            {/* Header */}
+            <div className="flex items-center justify-between mb-8">
+                <div>
+                    <h1 className="text-3xl font-black text-gray-900 uppercase tracking-tighter">
+                        Centro de Alertas
+                    </h1>
+                    <p className="text-sm font-bold text-gray-500 mt-1">
+                        {unreadCount} SIN LEER
+                    </p>
+                </div>
 
-<div className="flex gap-1 bg-gray-100 p-1 rounded-lg w-fit
-mb-5">{[{id:'todas',l:'Todas'},{id:'no_leidas',l:'No
-leídas'},{id:'leidas',l:'Leídas'}].map(f=><button key={f.id}
-onClick={()=>setFilter(f.id)} className={`px-4 py-1.5 rounded-md
-text-xs font-medium transition-all ${filter===f.id?'bg-white shadow
-text-gray-800':'text-gray-500'}`}>{f.l}</button>)}</div>
+                {unreadCount > 0 && (
+                    <Btn
+                        variant="secondary"
+                        onClick={handleMarkAllRead}
+                        disabled={isLoading}
+                        className="border-2 border-black font-bold uppercase text-xs"
+                    >
+                        Marcar todas leídas
+                    </Btn>
+                )}
+            </div>
 
-{filtered.length===0?<div className="flex flex-col items-center
-py-16"><Ic n="bell" s={40} c="#D1D5DB"/><p
-className="text-gray-400 mt-3">Sin alertas</p></div>:
+            {/* 3. Diseño: Pestañas de filtrado de alto contraste */}
+            <div className="flex gap-2 mb-8 border-b-2 border-black pb-4">
+                {[
+                    { id: 'todas', label: 'Todas' },
+                    { id: 'no_leidas', label: 'No leídas' },
+                    { id: 'leidas', label: 'Leídas' }
+                ].map(f => (
+                    <button
+                        key={f.id}
+                        onClick={() => setFilter(f.id)}
+                        className={`px-5 py-2 text-xs font-black uppercase transition-all border-2 
+              ${filter === f.id
+                                ? 'bg-black text-white border-black shadow-[3px_3px_0px_rgba(16,185,129,1)]'
+                                : 'bg-white text-gray-600 border-transparent hover:border-black'
+                            }`}
+                    >
+                        {f.label}
+                    </button>
+                ))}
+            </div>
 
-<div className="space-y-2">{filtered.map(a=>{const
-ti=tipos[a.tipo]||tipos.info;const
-tr=tramites.find(t=>t._id===a.tramite_id);return(
+            {/* Lista de alertas */}
+            {filteredAlertas.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-20 border-2 border-dashed border-gray-300 bg-gray-50">
+                    <Ic n="bell" s={48} c="#9CA3AF" />
+                    <p className="text-gray-500 mt-4 font-bold uppercase tracking-widest text-sm">Sin alertas</p>
+                </div>
+            ) : (
+                <div className="space-y-4">
+                    {filteredAlertas.map(alerta => {
+                        const config = ALERT_TYPES[alerta.tipo] || ALERT_TYPES.info;
+                        const tramite = tramites.find(t => t._id === alerta.tramite_id);
 
-<div key={a.id} className={`rounded-xl border p-4 flex gap-4
-${a.leido?'bg-white border-gray-100':'border-amber-200
-bg-amber-50'}`}>
+                        // 3. Diseño: Estilos Neo-Brutalistas / Minimalistas para tarjetas no leídas
+                        const cardStyles = alerta.leido
+                            ? 'bg-gray-50 border-gray-200 text-gray-500 opacity-70'
+                            : 'bg-white border-black shadow-[4px_4px_0px_rgba(0,0,0,1)]';
 
-<div className="w-9 h-9 rounded-xl flex items-center justify-center
-flex-shrink-0" style={{background:ti.bg}}><Ic n={ti.i} s={16}
-c={ti.c}/></div>
+                        return (
+                            <div
+                                key={alerta.id}
+                                className={`border-2 p-5 flex gap-5 items-start transition-all ${cardStyles}`}
+                            >
+                                {/* Icono */}
+                                <div className={`w-12 h-12 flex items-center justify-center flex-shrink-0 border-2 border-black ${config.bg} ${alerta.leido ? 'grayscale opacity-50' : ''}`}>
+                                    <Ic n={config.icon} s={20} c="#000000" />
+                                </div>
 
-<div className="flex-1 min-w-0"><p className={`text-sm
-${a.leido?'text-gray-600':'text-gray-800
-font-medium'}`}>{a.mensaje}</p><div className="flex items-center
-gap-3 mt-1"><span className="text-[10px]
-text-gray-400">{fmtDate(a.fecha)}</span>{tr&&<span
-className="text-[10px] text-blue-600
-truncate">{tr.nombre}</span>}{!a.leido&&<span
-className="text-[10px] font-medium text-amber-600">●
-Nueva</span>}</div></div>
+                                {/* Contenido */}
+                                <div className="flex-1 min-w-0">
+                                    <p className={`text-base ${alerta.leido ? 'font-medium' : 'font-bold text-black'}`}>
+                                        {alerta.mensaje}
+                                    </p>
 
-<div className="flex gap-1">{!a.leido&&<button
-onClick={()=>markRead(a.id)} className="p-1.5 hover:bg-white
-rounded-lg"><Ic n="eye" s={14} c="#6B7280"/></button>}<button
-onClick={()=>delAlerta(a.id)} className="p-1.5 hover:bg-white
-rounded-lg"><Ic n="trash" s={14}
-c="#9CA3AF"/></button></div>
+                                    <div className="flex items-center gap-4 mt-2">
+                                        <span className="text-xs font-bold uppercase bg-gray-200 px-2 py-1 border border-black">
+                                            {fmtDate(alerta.fecha)}
+                                        </span>
 
-</div>
+                                        {tramite && (
+                                            <span className="text-xs font-bold uppercase text-blue-800 truncate">
+                                                {tramite.nombre}
+                                            </span>
+                                        )}
 
-);})}</div>}
+                                        {!alerta.leido && (
+                                            <span className="text-xs font-black text-red-600 uppercase flex items-center gap-1">
+                                                <span className="w-2 h-2 bg-red-600 rounded-full animate-pulse"></span>
+                                                Nueva
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
 
-</div>
-
-);
-
+                                {/* Acciones */}
+                                <div className="flex gap-2 border-l-2 border-gray-200 pl-4 ml-2">
+                                    {!alerta.leido && (
+                                        <button
+                                            onClick={() => handleMarkRead(alerta.id)}
+                                            disabled={isLoading}
+                                            className="p-2 hover:bg-black hover:text-white border-2 border-transparent hover:border-black transition-colors flex items-center justify-center"
+                                            title="Marcar como leída"
+                                        >
+                                            <Ic n="eye" s={18} />
+                                        </button>
+                                    )}
+                                    <button
+                                        onClick={() => handleDelAlerta(alerta.id)}
+                                        disabled={isLoading}
+                                        className="p-2 hover:bg-red-500 hover:text-white text-gray-400 border-2 border-transparent hover:border-black transition-colors flex items-center justify-center"
+                                        title="Eliminar alerta"
+                                    >
+                                        <Ic n="trash" s={18} />
+                                    </button>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+        </div>
+    );
 }
-
-/* ── CONSULTOR PANEL ─────────────────────── */
 
 export default AlertasCenter;

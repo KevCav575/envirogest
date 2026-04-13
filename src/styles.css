@@ -1,101 +1,129 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;700;900&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-\*{font-family:'Inter',sans-serif;box-sizing:border-box;}
+/* ── BASE NEO-BRUTALISTA ── */
+* {
+    font-family: 'Space Grotesk', 'Inter', system-ui, sans-serif;
+    box-sizing: border-box;
+}
 
-html,body,#root{height:100%;margin:0;}
+html,
+body,
+#root {
+    height: 100%;
+    margin: 0;
+    background-color: #ffffff;
+    color: #000000;
+    -webkit-font-smoothing: antialiased;
+}
 
-::-webkit-scrollbar{width:5px;height:5px;}
+/* Scrollbar Industrial */
+::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+}
 
-::-webkit-scrollbar-track{background:#f1f5f9;}
+::-webkit-scrollbar-track {
+    background: #ffffff;
+    border-left: 2px solid #000000;
+}
 
-::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:10px;}
+::-webkit-scrollbar-thumb {
+    background: #000000;
+    border-radius: 0;
+    /* Sin curvas */
+}
 
-.sidebar-item:hover{background:rgba(255,255,255,0.12);}
+::-webkit-scrollbar-thumb:hover {
+    background: #10B981;
+    /* Verde esmeralda al pasar el mouse */
+}
 
-.sidebar-item.active{background:rgba(255,255,255,0.2);}
+/* ── ANIMACIONES CRUDAS (Snap en lugar de Fade) ── */
+.fade-in {
+    animation: snapIn 0.15s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
 
-.fade-in{animation:fadeIn .22s ease;}
+@keyframes snapIn {
+    from {
+        opacity: 0;
+        transform: translateY(12px);
+    }
 
-\@keyframes
-fadeIn{from{opacity:0;transform:translateY(5px);}to{opacity:1;transform:translateY(0);}}
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
 
-.glass{background:rgba(255,255,255,0.96);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);}
+/* ── ELEMENTOS GLOBALES ── */
+button:focus,
+input:focus,
+select:focus {
+    outline: none;
+    /* El foco de Tailwind (focus:bg-yellow-100) hará el trabajo visual */
+}
 
-.client-card:hover .client-arrow{transform:translateX(3px);}
+/* Eliminar el "glassmorphism" (blur y transparencias no aplican en brutalismo) */
+.glass {
+    background: #ffffff;
+    border: 4px solid #000000;
+    box-shadow: 4px 4px 0px rgba(0, 0, 0, 1);
+}
 
-.client-arrow{transition:transform .2s;}
+/* Comportamiento base para sombras duras (botones y tarjetas) */
+.neo-brutal-hover {
+    transition: all 0.1s ease-out;
+}
 
-/\* Auth screen global overrides \*/
+.neo-brutal-hover:hover {
+    transform: translate(-2px, -2px);
+    box-shadow: 6px 6px 0px rgba(0, 0, 0, 1);
+}
 
-button:focus{outline:none;}
+.neo-brutal-hover:active {
+    transform: translate(2px, 2px);
+    box-shadow: none;
+}
 
-/\* ── AUTH SCREEN STYLES ── \*/
+/* ── INDICADORES ESPECÍFICOS ── */
 
-\@keyframes floatA{0%,100%{transform:translateY(0)
-rotate(0deg);}50%{transform:translateY(-18px) rotate(6deg);}}
+/* Panel Expandible (Sin fades suaves) */
+.expand-panel {
+    animation: slideDown 0.15s linear forwards;
+    border-top: 4px solid #000;
+}
 
-\@keyframes floatB{0%,100%{transform:translateY(0)
-rotate(0deg);}50%{transform:translateY(-12px) rotate(-4deg);}}
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
 
-\@keyframes authPulse{0%{background-position:0%
-50%;}50%{background-position:100% 50%;}100%{background-position:0%
-50%;}}
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
 
-\@keyframes
-fadeUp{from{opacity:0;transform:translateY(20px);}to{opacity:1;transform:translateY(0);}}
+/* Marcas de urgencia para Instrucciones */
+.instr-urgente {
+    /* Estas clases ya están siendo manejadas directamente en los componentes con Tailwind
+     border-red-600 bg-red-100, etc. Pero por si acaso: */
+    border-left-width: 8px !important;
+    border-left-color: #DC2626 !important;
+}
 
-.auth-bg{background:linear-gradient(145deg,#0a1628 0%,#0f2d1e
-30%,#14532d 55%,#1a3a5c 80%,#0f172a 100%);background-size:300%
-300%;animation:authPulse 16s ease infinite;}
+.instr-normal {
+    border-left-width: 8px !important;
+    border-left-color: #000000 !important;
+}
 
-.auth-card{background:rgba(255,255,255,0.98);border-radius:24px;box-shadow:0
-32px 64px rgba(0,0,0,0.45),0 0 0 1px
-rgba(255,255,255,0.1);animation:fadeUp .3s ease;}
-
-.leaf-orb-1{position:absolute;top:8%;left:4%;width:64px;height:64px;border-radius:9999px;background:rgba(255,255,255,0.06);display:flex;align-items:center;justify-content:center;animation:floatA
-10s ease-in-out infinite;pointer-events:none;}
-
-.leaf-orb-2{position:absolute;top:55%;left:8%;width:48px;height:48px;border-radius:9999px;background:rgba(255,255,255,0.06);display:flex;align-items:center;justify-content:center;animation:floatB
-13s ease-in-out infinite;animation-delay:2s;pointer-events:none;}
-
-.leaf-orb-3{position:absolute;top:25%;left:14%;width:36px;height:36px;border-radius:9999px;background:rgba(255,255,255,0.05);display:flex;align-items:center;justify-content:center;animation:floatA
-8s ease-in-out infinite;animation-delay:1s;pointer-events:none;}
-
-.drop-orb-1{position:absolute;bottom:20%;right:5%;width:52px;height:52px;border-radius:9999px;background:rgba(96,165,250,0.12);display:flex;align-items:center;justify-content:center;animation:floatB
-11s ease-in-out infinite;animation-delay:3s;pointer-events:none;}
-
-.drop-orb-2{position:absolute;top:12%;right:10%;width:40px;height:40px;border-radius:9999px;background:rgba(96,165,250,0.08);display:flex;align-items:center;justify-content:center;animation:floatA
-9s ease-in-out infinite;animation-delay:1.5s;pointer-events:none;}
-
-.auth-tab-btn{flex:1;padding:9px
-0;font-size:13px;font-weight:600;border:none;cursor:pointer;transition:all
-.2s;background:transparent;color:rgba(255,255,255,0.55);font-family:'Inter',sans-serif;}
-
-.auth-tab-btn.on{background:white;color:#14532d;border-radius:9px;box-shadow:0
-2px 8px rgba(0,0,0,0.18);}
-
-.auth-submit{width:100%;padding:13px
-24px;background:linear-gradient(135deg,#14532d 0%,#1e40af
-100%);color:white;border:none;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer;box-shadow:0
-4px 16px
-rgba(20,83,45,0.5);font-family:'Inter',sans-serif;transition:opacity
-.15s;}
-
-.auth-submit:hover{opacity:0.9;}
-
-/\* ── ADMIN DETAIL PANEL ── \*/
-
-\@keyframes
-expandIn{from{opacity:0;transform:translateY(-6px);}to{opacity:1;transform:translateY(0);}}
-
-.expand-panel{animation:expandIn .2s ease;}
-
-.tram-row:not(:last-child){border-bottom:1px solid #f1f5f9;}
-
-.tram-row:hover{background:#f9fafb;}
-
-.instr-urgente{border-left:3px solid #ef4444!important;}
-
-.instr-normal{border-left:3px solid #3b82f6!important;}
+/* ── LIMPIEZA DE CÓDIGO VIEJO ── */
+/* Se eliminaron intencionalmente todas las animaciones flotantes (floatA, floatB) 
+   y fondos degradados (auth-bg) del código original.
+   El Brutalismo exige solidez estática, fondos de color liso o texturas de puntos/rayas.
+*/
